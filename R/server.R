@@ -154,7 +154,7 @@ grpc_finish <- function(request, status = 0L, message = "", metadata = NULL) {
     stopifnot(inherits(request, "grpc_request"))
     if (is.character(status)) {
         status <- grpc_status_codes[[match.arg(status,
-                names(grpc_status_codes))]]
+                    names(grpc_status_codes))]]
     }
     status <- as.integer(status)
     if (status != 0L) {

@@ -77,8 +77,7 @@ grpc_call <- function(client, method, request, deadline_ms = NULL,
     output_type <- NULL
     if (inherits(method, "grpc_method")) {
         if (method$client_streaming || method$server_streaming) {
-            stop("method '", method$path,
-                 "' is streaming; use grpc_stream()")
+            stop("method '", method$path, "' is streaming; use grpc_stream()")
         }
         if (inherits(request, "Message")) {
             got <- RProtoBuf::name(RProtoBuf::descriptor(request), TRUE)
@@ -233,8 +232,8 @@ grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
         if (!is.null(types) && !is.null(types$output) &&
             !is.null(ev$response) &&
             (identical(ev$kind, "stream_msg") ||
-             (identical(ev$kind, "unary") &&
-              identical(ev$status_name, "OK")))) {
+                (identical(ev$kind, "unary") &&
+                    identical(ev$status_name, "OK")))) {
             ev$response_message <- grpc_decode(ev$response, types$output)
         }
         if (terminal && !is.null(types)) {
