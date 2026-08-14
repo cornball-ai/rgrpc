@@ -6,9 +6,11 @@
 # built on noble loads only on a noble userland. Both stages below use
 # the same base, which settles the pairing by construction.
 #
-# Build context: this directory, with the package tarball copied in.
+# Build context: this directory, with exactly one tarball under a fixed
+# name (a wildcard COPY would install every cached version in glob
+# order; the fixed name makes the artifact explicit).
 #   r -e 'tinypkgr::build()'   # writes to ~/.cache/R/tinypkgr/
-#   cp ~/.cache/R/tinypkgr/grpc_*.tar.gz .
+#   cp ~/.cache/R/tinypkgr/grpc_<version>.tar.gz grpc.tar.gz
 #   docker build -t cornball/grpc-node .
 
 FROM rocker/r2u:noble AS build
@@ -16,8 +18,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgrpc++-dev libprotobuf-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
-COPY grpc_*.tar.gz /tmp/
-RUN mkdir -p /opt/rlib && R CMD INSTALL --library=/opt/rlib /tmp/grpc_*.tar.gz
+COPY grpc.tar.gz /tmp/grpc.tar.gz
+RUN mkdir -p /opt/rlib && R CMD INSTALL --library=/opt/rlib /tmp/grpc.tar.gz
 
 FROM rocker/r2u:noble
 RUN apt-get update \

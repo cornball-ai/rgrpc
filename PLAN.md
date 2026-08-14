@@ -194,8 +194,9 @@ verifies them cheaply instead of deciding them.
      tied to the distro ABI. One apt line in the Dockerfile, but the
      base-image pairing is a stated constraint, not an accident.
    - Sanitizer, Valgrind, and forced-error cleanup coverage.
-   - Reproducibility comes from pinned distro package versions, not
-     hermetic vendoring.
+   - The guarantee is distro-release/ABI pairing, not a hermetic or
+     bit-reproducible image; pin base digest and apt versions when a
+     frozen image is needed.
 
 ## Spike results (increment 1, done 2026-08-14)
 

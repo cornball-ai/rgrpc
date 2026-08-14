@@ -70,6 +70,44 @@ if (at_home()) {
   invisible(gc())
   grpc_close(cl)
 
+  ## ---- server close with queued writes still pumping ----
+  ## Reaches the shutting guard in the server's write pump: completions
+  ## of already-posted writes drain after cq shutdown and must not post
+  ## follow-on ops. Looped because the window is a race.
+  for (i in 1:5) {
+    srv <- grpc_server()
+    cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+    s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 10000)
+    grpc_send(s, raw(1))
+    req <- NULL
+    t0 <- Sys.time()
+    while (is.null(req) &&
+           as.numeric(Sys.time() - t0, units = "secs") < 5) {
+      for (ev in grpc_poll(srv, timeout_ms = 200L)) {
+        if (ev$type == "request") req <- ev
+      }
+    }
+    for (j in 1:8) grpc_send(req, as.raw(j))
+    grpc_finish(req)
+    grpc_close(srv)
+    grpc_close(cl)
+  }
+
+  ## ---- accepts matching concurrently with shutdown ----
+  ## Reaches the shutting branch of the accept handler: a call matched
+  ## just as the server closes must not post its first read.
+  for (i in 1:5) {
+    srv <- grpc_server()
+    cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+    for (j in 1:5) {
+      grpc_call(cl, "/x/Y", raw(0), deadline_ms = 5000,
+                wait_for_ready = TRUE)
+    }
+    grpc_close(srv)
+    grpc_close(cl)
+  }
+  expect_true(TRUE)
+
   ## ---- create/destroy churn with work in flight ----
   for (i in 1:20) {
     srv <- grpc_server()

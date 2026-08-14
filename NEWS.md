@@ -7,7 +7,9 @@
   close, on both client and server.
 - Forced-error cleanup tests: post-close operations error cleanly,
   finalizers with work in flight, create/destroy churn.
-- Verified under valgrind (0 errors, 0 leaks), AddressSanitizer
+- Verified under valgrind (0 errors, 0 definite/indirect leaks;
+  possibly-lost noise from gRPC/absl thread-locals and R
+  remains), AddressSanitizer
   (clean), and ThreadSanitizer (all reports trace to the
   uninstrumented system libgrpc boundary; none in package code).
 - Reference node image under `docker/`: two-stage build on

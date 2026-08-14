@@ -17,14 +17,23 @@ package against that release's gRPC, not copying the installed library
 over.
 
 Both stages in the Dockerfile use `rocker/r2u:noble`, so the constraint
-holds by construction. Reproducibility comes from pinned distro package
-versions, not hermetic vendoring.
+holds by construction.
+
+What this guarantees is release/ABI pairing, not a bit-reproducible
+image: `rocker/r2u:noble` is a mutable tag and apt package versions
+track noble's archive. If you need a frozen image, pin the base by
+digest (`rocker/r2u@sha256:...`) and pin apt versions
+(`libgrpc++1.51t64=1.51.1-4.1build5`).
 
 ## Build
 
+The tarball goes in under a fixed name — one artifact, explicitly
+chosen, rather than a wildcard that would install every cached version
+in glob order:
+
 ```sh
 r -e 'tinypkgr::build()'   # writes to ~/.cache/R/tinypkgr/
-cp ~/.cache/R/tinypkgr/grpc_*.tar.gz docker/
+cp ~/.cache/R/tinypkgr/grpc_<version>.tar.gz docker/grpc.tar.gz
 docker build -t cornball/grpc-node docker/
 ```
 
