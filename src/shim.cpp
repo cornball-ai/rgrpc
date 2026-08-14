@@ -141,6 +141,15 @@ extern "C" SEXP grpc_r_client_poll(SEXP, SEXP, SEXP);
 extern "C" SEXP grpc_r_call_start(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
 extern "C" SEXP grpc_r_call_cancel(SEXP, SEXP);
 
+// server.cpp
+extern "C" SEXP grpc_r_server2_create(SEXP, SEXP, SEXP);
+extern "C" SEXP grpc_r_server2_close(SEXP);
+extern "C" SEXP grpc_r_server2_fd(SEXP);
+extern "C" SEXP grpc_r_server2_port(SEXP);
+extern "C" SEXP grpc_r_server2_pending(SEXP);
+extern "C" SEXP grpc_r_server2_reply(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
+extern "C" SEXP grpc_r_server2_poll(SEXP, SEXP, SEXP);
+
 static const R_CallMethodDef call_methods[] = {
     {"grpc_r_version",         (DL_FUNC) &grpc_r_version,         0},
     {"grpc_r_channel_create",  (DL_FUNC) &grpc_r_channel_create,  1},
@@ -157,6 +166,13 @@ static const R_CallMethodDef call_methods[] = {
     {"grpc_r_client_poll",     (DL_FUNC) &grpc_r_client_poll,     3},
     {"grpc_r_call_start",      (DL_FUNC) &grpc_r_call_start,      6},
     {"grpc_r_call_cancel",     (DL_FUNC) &grpc_r_call_cancel,     2},
+    {"grpc_r_server2_create",  (DL_FUNC) &grpc_r_server2_create,  3},
+    {"grpc_r_server2_close",   (DL_FUNC) &grpc_r_server2_close,   1},
+    {"grpc_r_server2_fd",      (DL_FUNC) &grpc_r_server2_fd,      1},
+    {"grpc_r_server2_port",    (DL_FUNC) &grpc_r_server2_port,    1},
+    {"grpc_r_server2_pending", (DL_FUNC) &grpc_r_server2_pending, 1},
+    {"grpc_r_server2_reply",   (DL_FUNC) &grpc_r_server2_reply,   6},
+    {"grpc_r_server2_poll",    (DL_FUNC) &grpc_r_server2_poll,    3},
     {NULL, NULL, 0}
 };
 

@@ -78,38 +78,6 @@ grpc_call <- function(client, method, request, deadline_ms = NULL,
               class = "grpc_call")
 }
 
-#' Receive completed calls
-#'
-#' Drains up to \code{max_events} completed calls from the client. Each
-#' completion is a list with elements \code{id}, \code{status} (integer,
-#' see \code{\link{grpc_status_codes}}), \code{status_name},
-#' \code{message}, \code{response} (raw vector, or \code{NULL} unless the
-#' status is \code{OK}), \code{initial_metadata}, and
-#' \code{trailing_metadata}.
-#'
-#' @param client A \code{"grpc_client"} object.
-#' @param max_events Maximum completions to return in this batch.
-#' @param timeout_ms How long to wait if no completion is ready:
-#'   \code{0} returns immediately, a positive value waits up to that many
-#'   milliseconds, \code{-1} waits indefinitely.
-#' @return A list of completion events (possibly empty).
-#' @examples
-#' \dontrun{
-#' events <- grpc_poll(client, max_events = 64L, timeout_ms = 100L)
-#' for (ev in events) if (ev$status_name == "OK") handle(ev$response)
-#' }
-#' @export
-grpc_poll <- function(client, max_events = 64L, timeout_ms = 0L) {
-    stopifnot(inherits(client, "grpc_client"))
-    events <- .Call(grpc_r_client_poll, client$ptr, as.integer(max_events),
-                    as.integer(timeout_ms))
-    lapply(events, function(ev) {
-        ev$status_name <- names(grpc_status_codes)[match(ev$status,
-                grpc_status_codes)]
-        ev
-    })
-}
-
 #' Cancel an in-flight call
 #'
 #' Requests cancellation. The call still completes through
@@ -125,52 +93,28 @@ grpc_cancel <- function(call) {
     invisible(.Call(grpc_r_call_cancel, call$client$ptr, call$id))
 }
 
-#' Completion wakeup file descriptor
-#'
-#' Returns the client's eventfd. It becomes readable whenever a
-#' completion is queued, so an event loop can wake on it instead of
-#' polling, e.g. \code{later::later_fd(function(...) grpc_poll(client),
-#' readfds = grpc_fd(client))}. Do not read from this descriptor;
-#' \code{\link{grpc_poll}} drains it.
-#'
-#' @param client A \code{"grpc_client"} object.
-#' @return Integer file descriptor.
-#' @examples
-#' \dontrun{
-#' later::later_fd(function(ready) grpc_poll(client),
-#'                 readfds = grpc_fd(client))
-#' }
 #' @export
-grpc_fd <- function(client) {
-    stopifnot(inherits(client, "grpc_client"))
-    .Call(grpc_r_client_fd, client$ptr)
+grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
+    events <- .Call(grpc_r_client_poll, x$ptr, as.integer(max_events),
+                    as.integer(timeout_ms))
+    lapply(events, function(ev) {
+        ev$status_name <- names(grpc_status_codes)[match(ev$status,
+                grpc_status_codes)]
+        ev
+    })
 }
 
-#' Number of in-flight calls
-#'
-#' @param client A \code{"grpc_client"} object.
-#' @return Integer count of calls started but not yet delivered by
-#'   \code{\link{grpc_poll}}.
-#' @examples
-#' \dontrun{while (grpc_pending(client) > 0) grpc_poll(client, timeout_ms = 100L)}
 #' @export
-grpc_pending <- function(client) {
-    stopifnot(inherits(client, "grpc_client"))
-    .Call(grpc_r_client_pending, client$ptr)
+grpc_fd.grpc_client <- function(x) {
+    .Call(grpc_r_client_fd, x$ptr)
 }
 
-#' Close a client
-#'
-#' Cancels in-flight calls, shuts down the completion queue, joins the
-#' completion thread, and releases the channel. Undelivered completions
-#' are discarded. Closing twice is a no-op; the finalizer performs the
-#' same shutdown if a client is garbage collected unclosed.
-#'
-#' @param client A \code{"grpc_client"} object.
-#' @examples
-#' \dontrun{grpc_close(client)}
 #' @export
-grpc_close <- function(client) {
-    stopifnot(inherits(client, "grpc_client"))
-    invisible(.Call(grpc_r_client_close, client$ptr))
+grpc_pending.grpc_client <- function(x) {
+    .Call(grpc_r_client_pending, x$ptr)
+}
+
+#' @export
+grpc_close.grpc_client <- function(x) {
+    invisible(.Call(grpc_r_client_close, x$ptr))
 }
