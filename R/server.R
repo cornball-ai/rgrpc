@@ -81,7 +81,7 @@ grpc_reply <- function(request, response = NULL, status = 0L, message = "",
     stopifnot(inherits(request, "grpc_request"))
     if (is.character(status)) {
         status <- grpc_status_codes[[match.arg(status,
-                names(grpc_status_codes))]]
+                    names(grpc_status_codes))]]
     }
     status <- as.integer(status)
     if (status == 0L) {
