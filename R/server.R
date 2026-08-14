@@ -75,8 +75,8 @@ grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
         if (tls) credentials$ca, if (tls) credentials$cert,
         if (tls) credentials$key,
                 tls && credentials$require_client_cert,
-        ms(keepalive_ms), ms(keepalive_timeout_ms),
-        ms(min_ping_interval_ms))
+                ms(keepalive_ms), ms(keepalive_timeout_ms),
+                ms(min_ping_interval_ms))
     structure(list(ptr = xp, address = address), class = "grpc_server")
 }
 
