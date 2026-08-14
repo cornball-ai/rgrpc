@@ -27,9 +27,7 @@
 #include <grpcpp/support/byte_buffer.h>
 #include <grpcpp/support/slice.h>
 
-#define R_NO_REMAP
-#include <R.h>
-#include <Rinternals.h>
+#include "common.h"
 
 namespace {
 
@@ -101,35 +99,6 @@ client *get_client(SEXP xp) {
     auto *c = static_cast<client *>(R_ExternalPtrAddr(xp));
     if (c == nullptr || c->closed) Rf_error("grpc client is closed");
     return c;
-}
-
-SEXP metadata_to_r(const std::multimap<grpc::string_ref, grpc::string_ref> &md) {
-    const R_xlen_t n = static_cast<R_xlen_t>(md.size());
-    SEXP values = PROTECT(Rf_allocVector(STRSXP, n));
-    SEXP names = PROTECT(Rf_allocVector(STRSXP, n));
-    R_xlen_t i = 0;
-    for (const auto &kv : md) {
-        SET_STRING_ELT(names, i, Rf_mkCharLen(kv.first.data(), (int) kv.first.size()));
-        SET_STRING_ELT(values, i, Rf_mkCharLen(kv.second.data(), (int) kv.second.size()));
-        ++i;
-    }
-    Rf_setAttrib(values, R_NamesSymbol, names);
-    UNPROTECT(2);
-    return values;
-}
-
-SEXP byte_buffer_to_raw(const grpc::ByteBuffer &bb) {
-    std::vector<grpc::Slice> slices;
-    if (!bb.Dump(&slices).ok()) return R_NilValue;
-    size_t total = 0;
-    for (const auto &s : slices) total += s.size();
-    SEXP out = Rf_allocVector(RAWSXP, (R_xlen_t) total);
-    unsigned char *p = RAW(out);
-    for (const auto &s : slices) {
-        std::memcpy(p, s.begin(), s.size());
-        p += s.size();
-    }
-    return out;
 }
 
 }  // namespace
@@ -256,10 +225,10 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
         SET_VECTOR_ELT(ev, 0, Rf_ScalarReal((double) cs->id));
         SET_VECTOR_ELT(ev, 1, Rf_ScalarInteger((int) cs->status.error_code()));
         SET_VECTOR_ELT(ev, 2, Rf_mkString(cs->status.error_message().c_str()));
-        SET_VECTOR_ELT(ev, 3, cs->status.ok() ? byte_buffer_to_raw(cs->response)
+        SET_VECTOR_ELT(ev, 3, cs->status.ok() ? grpc_byte_buffer_to_raw(cs->response)
                                               : R_NilValue);
-        SET_VECTOR_ELT(ev, 4, metadata_to_r(cs->context.GetServerInitialMetadata()));
-        SET_VECTOR_ELT(ev, 5, metadata_to_r(cs->context.GetServerTrailingMetadata()));
+        SET_VECTOR_ELT(ev, 4, grpc_metadata_to_r(cs->context.GetServerInitialMetadata()));
+        SET_VECTOR_ELT(ev, 5, grpc_metadata_to_r(cs->context.GetServerTrailingMetadata()));
         SET_VECTOR_ELT(out, i, ev);
         UNPROTECT(1);
         delete cs;

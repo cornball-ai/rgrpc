@@ -3,19 +3,18 @@
 \alias{grpc_fd}
 \title{Completion wakeup file descriptor}
 \usage{
-grpc_fd(client)
+grpc_fd(x)
 }
 \arguments{
-\item{client}{A \code{"grpc_client"} object.}
+\item{x}{A \code{"grpc_client"} or \code{"grpc_server"} object.}
 }
 \value{
 Integer file descriptor.
 }
 \description{
-Returns the client's eventfd. It becomes readable whenever a
-completion is queued, so an event loop can wake on it instead of
-polling, e.g. \code{later::later_fd(function(...) grpc_poll(client),
-readfds = grpc_fd(client))}. Do not read from this descriptor;
+Returns the object's eventfd. It becomes readable whenever an event is
+queued, so an event loop can wake on it instead of polling, e.g. with
+\code{later::later_fd()}. Do not read from this descriptor;
 \code{\link{grpc_poll}} drains it.
 }
 \examples{

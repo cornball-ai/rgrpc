@@ -1,3 +1,16 @@
+# grpc 0.0.1.2
+
+- Generic asynchronous server on `AsyncGenericService`: `grpc_server()`
+  accepts any method dynamically; `grpc_reply()` answers with a payload
+  or a typed status plus trailing metadata. Bounded accept window and
+  `max_active` apply backpressure.
+- `grpc_poll()`, `grpc_fd()`, `grpc_pending()`, and `grpc_close()` are
+  now S3 generics over clients and servers. Peer cancellation and
+  deadline expiry surface as `"cancelled"` events; late replies are
+  refused rather than crashing.
+- Full in-process round trips (TCP and unix-domain sockets) covered in
+  tests.
+
 # grpc 0.0.1.1
 
 - Generic asynchronous unary client on `GenericStub`: `grpc_client()`,
