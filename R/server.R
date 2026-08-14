@@ -101,6 +101,73 @@ grpc_reply <- function(request, response = NULL, status = 0L, message = "",
                     response, status, message, metadata))
 }
 
+#' Pull the next inbound message on a server stream
+#'
+#' Posts one read on a client- or bidirectionally-streaming call. The
+#' result arrives through \code{\link{grpc_poll}} as a
+#' \code{"stream_msg"} event (with \code{request} bytes), or
+#' \code{"client_done"} when the peer has half-closed. One read at a
+#' time: returns (invisibly) \code{FALSE} if a read is already in flight
+#' or the call is over.
+#'
+#' @param request A \code{"grpc_request"} event from
+#'   \code{\link{grpc_poll}}.
+#' @examples
+#' \dontrun{grpc_read(ev)}
+#' @export
+grpc_read <- function(request) {
+    stopifnot(inherits(request, "grpc_request"))
+    invisible(.Call(grpc_r_server2_read, request$server$ptr, request$id))
+}
+
+#' @export
+grpc_send.grpc_request <- function(x, msg, ...) {
+    if (inherits(msg, "Message")) {
+        msg <- RProtoBuf::serialize(msg, NULL)
+    }
+    stopifnot(is.raw(msg))
+    invisible(.Call(grpc_r_server2_send, x$server$ptr, x$id, msg))
+}
+
+#' End a server stream
+#'
+#' Sends the terminal status for a streaming call after any messages
+#' queued with \code{\link{grpc_send}} have drained. For unary replies
+#' use \code{\link{grpc_reply}}, which sends a payload and the status in
+#' one step. Returns (invisibly) \code{TRUE} if accepted, \code{FALSE}
+#' if the call is no longer answerable.
+#'
+#' @param request A \code{"grpc_request"} event from
+#'   \code{\link{grpc_poll}}.
+#' @param status Integer status code or name from
+#'   \code{\link{grpc_status_codes}}.
+#' @param message Optional error detail string for non-\code{OK} status.
+#' @param metadata Optional named character vector sent as trailing
+#'   metadata.
+#' @examples
+#' \dontrun{
+#' for (m in msgs) grpc_send(ev, m)
+#' grpc_finish(ev)
+#' }
+#' @export
+grpc_finish <- function(request, status = 0L, message = "", metadata = NULL) {
+    stopifnot(inherits(request, "grpc_request"))
+    if (is.character(status)) {
+        status <- grpc_status_codes[[match.arg(status,
+                names(grpc_status_codes))]]
+    }
+    status <- as.integer(status)
+    if (status != 0L) {
+        stopifnot(is.character(message), length(message) == 1L)
+    }
+    if (!is.null(metadata)) {
+        stopifnot(is.character(metadata), !is.null(names(metadata)),
+                  all(nzchar(names(metadata))))
+    }
+    invisible(.Call(grpc_r_server2_finish, request$server$ptr, request$id,
+                    status, message, metadata))
+}
+
 #' @export
 grpc_poll.grpc_server <- function(x, max_events = 64L, timeout_ms = 0L) {
     events <- .Call(grpc_r_server2_poll, x$ptr, as.integer(max_events),

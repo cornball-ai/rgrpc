@@ -65,6 +65,42 @@ grpc_pending <- function(x) {
     UseMethod("grpc_pending")
 }
 
+#' Send a message on a stream
+#'
+#' Enqueues one outbound message on a bounded write queue. For a client
+#' \code{"grpc_stream"}, this is the request direction; for a server
+#' \code{"grpc_request"}, the response direction. Returns (invisibly)
+#' \code{TRUE} if the message was queued, or \code{FALSE} if the queue
+#' is full (backpressure: wait for the \code{"stream_writable"} event
+#' and retry) or the stream can no longer accept writes.
+#'
+#' @param x A \code{"grpc_stream"} (client) or \code{"grpc_request"}
+#'   (server) object.
+#' @param msg Raw vector, or an \code{RProtoBuf} \code{Message} to
+#'   serialize (validated against the method's \code{input_type} on a
+#'   typed client stream).
+#' @param ... Reserved.
+#' @examples
+#' \dontrun{while (!grpc_send(s, msg)) grpc_poll(client, timeout_ms = 100L)}
+#' @export
+grpc_send <- function(x, msg, ...) {
+    UseMethod("grpc_send")
+}
+
+#' Cancel an in-flight call or stream
+#'
+#' Requests cancellation. The call or stream still completes through
+#' \code{\link{grpc_poll}}, normally with status \code{CANCELLED}.
+#' Cancelling something already completed is a no-op.
+#'
+#' @param x A \code{"grpc_call"} or \code{"grpc_stream"} object.
+#' @examples
+#' \dontrun{grpc_cancel(call)}
+#' @export
+grpc_cancel <- function(x) {
+    UseMethod("grpc_cancel")
+}
+
 #' Shut down a client or server
 #'
 #' Cancels outstanding work, shuts down the completion queue, joins the
