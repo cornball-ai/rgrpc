@@ -207,9 +207,11 @@ Environment: noble, `libgrpc++-dev` 1.51.1-4.1build5, r2u
   does (`libgrpc++_reflection`) links the same `libprotobuf.so.32`. One
   protobuf runtime on the system, and .so.32 is the only major present.
 - **Shim works.** Channel, completion queue, and generic-service server
-  create/destroy with finalizers and shutdown-then-drain ordering: 53
-  tinytest results pass in ~100 ms, including 10 ephemeral-port server
-  bind cycles. `R CMD check`: 0 errors, 0 warnings, 3 benign NOTEs.
+  create/destroy with finalizers and shutdown-then-drain ordering: all
+  tinytest results pass, including 10 ephemeral-port server bind cycles
+  (note: the at-home tests need `run_test_dir()`; `test_package()`
+  defaults to `at_home = FALSE`). `R CMD check`: 0 errors, 0 warnings,
+  3 benign NOTEs.
 - **CRI proto loads.** cri-api v0.33.2 `api.proto` (2,128 lines, proto3)
   loads via `readProtoFiles2(protoPath = ...)`. It imports gogoproto, so
   `gogo.proto` and `google/protobuf/descriptor.proto` must be staged
