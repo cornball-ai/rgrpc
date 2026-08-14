@@ -234,6 +234,30 @@ Environment: noble, `libgrpc++-dev` 1.51.1-4.1build5, r2u
 
 Dirk contact remains gated on an explicit greenlight from Troy.
 
+## CRI proof results (increment 5, done 2026-08-14)
+
+- Live against containerd v2.2.3 on this host (CRI plugin enabled,
+  socket ACL'd for the user): `Version`, `ListPodSandbox`, and
+  `ListImages` all answer over `unix:///run/containerd/containerd.sock`
+  and decode through the typed layer (`response_message`). Zero
+  sandboxes on a non-Kubernetes host is the expected result; the round
+  trip is the proof.
+- gRPC 1.51 (2022) client interoperating with containerd v2.2.3 (2026)
+  confirms the wire-stability claim behind pinning to the distro
+  library.
+- The CRI v1 schema (cri-api v0.33.2 plus its gogoproto and
+  descriptor.proto imports) is vendored as a self-contained import root
+  at `inst/proto/cri` and resolves via the increment-4 layer:
+  RuntimeService (30+ methods, `GetContainerEvents` server-streaming
+  flag intact) and ImageService.
+- Live tests gate on a readable socket (`GRPC_R_CRI_SOCKET`
+  overridable) and skip cleanly elsewhere;
+  `inst/examples/cri-list-pods.R` is the human-runnable version.
+- Host note: Docker's stock containerd ships `disabled_plugins =
+  ["cri"]`; enabling CRI plus a transient socket ACL was required
+  (tmpfs, so re-grant after reboot; durable access would use
+  containerd's `[grpc] gid` config instead).
+
 ## Verification
 
 - Interoperate with official C++, Go, and Python gRPC implementations
