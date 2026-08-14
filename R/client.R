@@ -50,8 +50,8 @@ grpc_client <- function(target) {
 #' \code{Message}, the request type is validated against the method's
 #' \code{input_type} before sending, and the completion delivered by
 #' \code{\link{grpc_poll}} carries the decoded response as
-#' \code{response_message}. Streaming methods are refused until the
-#' streaming increment.
+#' \code{response_message}. Streaming methods are refused here; open
+#' them with \code{\link{grpc_stream}}.
 #'
 #' @param client A \code{"grpc_client"} object.
 #' @param method Full method path, e.g.
@@ -77,8 +77,7 @@ grpc_call <- function(client, method, request, deadline_ms = NULL,
     output_type <- NULL
     if (inherits(method, "grpc_method")) {
         if (method$client_streaming || method$server_streaming) {
-            stop("method '", method$path,
-                 "' is streaming; streaming arrives in a later increment")
+            stop("method '", method$path, "' is streaming; use grpc_stream()")
         }
         if (inherits(request, "Message")) {
             got <- RProtoBuf::name(RProtoBuf::descriptor(request), TRUE)
@@ -106,25 +105,116 @@ grpc_call <- function(client, method, request, deadline_ms = NULL,
     id <- .Call(grpc_r_call_start, client$ptr, method, request, deadline_ms,
                 metadata, isTRUE(wait_for_ready))
     if (!is.null(output_type)) {
-        assign(as.character(id), output_type, envir = client$calls)
+        assign(as.character(id), list(output = output_type),
+               envir = client$calls)
     }
     structure(list(client = client, id = id, method = method),
               class = "grpc_call")
 }
 
-#' Cancel an in-flight call
+#' Open a streaming call
 #'
-#' Requests cancellation. The call still completes through
-#' \code{\link{grpc_poll}}, normally with status \code{CANCELLED}.
-#' Cancelling a call that already completed is a no-op.
+#' Opens a client-, server-, or bidirectionally-streaming RPC. Messages
+#' are sent with \code{\link{grpc_send}}, the request direction is
+#' half-closed with \code{\link{grpc_writes_done}}, and everything
+#' inbound arrives through \code{\link{grpc_poll}} on the client:
+#' \code{"stream_msg"} events per message (with \code{response} bytes,
+#' plus \code{response_message} decoded on a typed stream),
+#' \code{"stream_writable"} when the send queue drains, and a final
+#' \code{"stream_status"} with status and trailing metadata.
 #'
-#' @param call A \code{"grpc_call"} object.
+#' Inbound flow control is automatic and bounded: at most
+#' \code{read_buffer} undelivered messages are held; beyond that the
+#' stream stops reading until \code{\link{grpc_poll}} drains, and HTTP/2
+#' backpressure propagates to the peer.
+#'
+#' @param client A \code{"grpc_client"} object.
+#' @param method Full method path, or a \code{"grpc_method"} object for
+#'   a typed stream (any streaming shape).
+#' @param deadline_ms Optional deadline in milliseconds for the whole
+#'   stream.
+#' @param metadata Optional named character vector of request metadata.
+#' @param wait_for_ready If \code{TRUE}, wait for the channel to connect
+#'   instead of failing fast.
+#' @param read_buffer Bound on undelivered inbound messages.
+#' @param write_buffer Bound on queued outbound messages.
+#' @return An object of class \code{"grpc_stream"} holding the stream id.
 #' @examples
-#' \dontrun{grpc_cancel(call)}
+#' \dontrun{
+#' s <- grpc_stream(client, grpc_method(rt, "GetContainerEvents"),
+#'                  RProtoBuf::P("runtime.v1.GetEventsRequest")$new())
+#' }
 #' @export
-grpc_cancel <- function(call) {
-    stopifnot(inherits(call, "grpc_call"))
-    invisible(.Call(grpc_r_call_cancel, call$client$ptr, call$id))
+grpc_stream <- function(client, method, deadline_ms = NULL, metadata = NULL,
+                        wait_for_ready = FALSE, read_buffer = 16L,
+                        write_buffer = 16L) {
+    stopifnot(inherits(client, "grpc_client"))
+    types <- NULL
+    if (inherits(method, "grpc_method")) {
+        types <- list(input = method$input_type, output = method$output_type)
+        method <- method$path
+    }
+    stopifnot(is.character(method), length(method) == 1L)
+    if (!is.null(deadline_ms)) {
+        stopifnot(is.numeric(deadline_ms), length(deadline_ms) == 1L,
+                  deadline_ms > 0)
+        deadline_ms <- as.numeric(deadline_ms)
+    }
+    if (!is.null(metadata)) {
+        stopifnot(is.character(metadata), !is.null(names(metadata)),
+                  all(nzchar(names(metadata))))
+    }
+    id <- .Call(grpc_r_stream_start, client$ptr, method, deadline_ms,
+                metadata, isTRUE(wait_for_ready), as.integer(read_buffer),
+                as.integer(write_buffer))
+    if (!is.null(types)) {
+        assign(as.character(id), types, envir = client$calls)
+    }
+    structure(list(client = client, id = id, method = method),
+              class = "grpc_stream")
+}
+
+#' @export
+grpc_send.grpc_stream <- function(x, msg, ...) {
+    if (inherits(msg, "Message")) {
+        types <- get0(as.character(x$id), envir = x$client$calls,
+                      inherits = FALSE)
+        if (!is.null(types) && !is.null(types$input)) {
+            got <- RProtoBuf::name(RProtoBuf::descriptor(msg), TRUE)
+            if (!identical(got, types$input)) {
+                stop("message is '", got, "' but '", x$method,
+                     "' expects '", types$input, "'")
+            }
+        }
+        msg <- RProtoBuf::serialize(msg, NULL)
+    }
+    stopifnot(is.raw(msg))
+    invisible(.Call(grpc_r_stream_send, x$client$ptr, x$id, msg))
+}
+
+#' Half-close a client stream
+#'
+#' Signals that no further messages will be sent. Queued messages are
+#' flushed first. Returns (invisibly) \code{FALSE} if already
+#' half-closed.
+#'
+#' @param stream A \code{"grpc_stream"} object.
+#' @examples
+#' \dontrun{grpc_writes_done(s)}
+#' @export
+grpc_writes_done <- function(stream) {
+    stopifnot(inherits(stream, "grpc_stream"))
+    invisible(.Call(grpc_r_stream_writes_done, stream$client$ptr, stream$id))
+}
+
+#' @export
+grpc_cancel.grpc_call <- function(x) {
+    invisible(.Call(grpc_r_call_cancel, x$client$ptr, x$id))
+}
+
+#' @export
+grpc_cancel.grpc_stream <- function(x) {
+    invisible(.Call(grpc_r_call_cancel, x$client$ptr, x$id))
 }
 
 #' @export
@@ -132,15 +222,22 @@ grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
     events <- .Call(grpc_r_client_poll, x$ptr, as.integer(max_events),
                     as.integer(timeout_ms))
     lapply(events, function(ev) {
-        ev$status_name <- names(grpc_status_codes)[match(ev$status,
-                grpc_status_codes)]
         key <- as.character(ev$id)
-        type <- get0(key, envir = x$calls, inherits = FALSE)
-        if (!is.null(type)) {
+        types <- get0(key, envir = x$calls, inherits = FALSE)
+        terminal <- ev$kind %in% c("unary", "stream_status")
+        if (terminal) {
+            ev$status_name <- names(grpc_status_codes)[match(ev$status,
+                    grpc_status_codes)]
+        }
+        if (!is.null(types) && !is.null(types$output) &&
+            !is.null(ev$response) &&
+            (identical(ev$kind, "stream_msg") ||
+                (identical(ev$kind, "unary") &&
+                    identical(ev$status_name, "OK")))) {
+            ev$response_message <- grpc_decode(ev$response, types$output)
+        }
+        if (terminal && !is.null(types)) {
             rm(list = key, envir = x$calls)
-            if (identical(ev$status_name, "OK") && !is.null(ev$response)) {
-                ev$response_message <- grpc_decode(ev$response, type)
-            }
         }
         ev
     })

@@ -1,20 +1,30 @@
-// Generic asynchronous server (increment 3).
+// Generic asynchronous server: unary request/reply (increment 3) and
+// streaming (increment 6).
 //
 // Same threading contract as the client: one background thread drains
-// the server completion queue and never calls the R API. Request events
-// are fully copied into plain C++ structs on the completion thread, so
+// the server completion queue and never calls the R API. Events are
+// fully copied into plain C++ structs on the completion thread, so
 // event delivery to R is independent of call-state lifetime. All call
 // state transitions happen under the server mutex; RPC ops are posted
 // while holding it so a concurrently completing call cannot be freed
 // between the state check and the op post.
 //
+// Streaming model: the first inbound message becomes the "request"
+// event, as in the unary case. Further inbound messages are pulled
+// explicitly — R posts one read at a time via grpc_r_server2_read and
+// receives "stream_msg" events, or "client_done" when the peer
+// half-closes. Outbound messages go through a bounded write queue
+// (grpc_r_server2_send) drained by write completions, with a
+// "stream_writable" event when the queue empties; the terminal status
+// (reply or finish) is deferred until queued writes drain.
+//
 // Backpressure: at most accept_window RequestCall slots are outstanding,
 // and no new slot is posted while active calls + outstanding slots would
-// exceed max_active. Excess incoming calls queue in gRPC/kernel until a
-// reply or call teardown frees capacity.
+// exceed max_active.
 
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <map>
 #include <memory>
@@ -37,7 +47,7 @@ namespace {
 
 struct sv_call;
 
-enum class svop { accept, read, done, finish };
+enum class svop { accept, read, write, done, finish };
 
 struct sv_tag {
     sv_call *call;
@@ -51,21 +61,33 @@ struct sv_call {
     grpc::ByteBuffer request;
     int pending = 0;  // outstanding CQ tags for this call
     bool delivered = false;
-    bool replied = false;
+    bool replied = false;  // terminal op requested (reply or finish)
     bool dead = false;
+    bool read_inflight = false;
+    bool write_inflight = false;
+    bool finish_posted = false;
+
+    std::deque<grpc::ByteBuffer> write_queue;
+    size_t write_cap = 16;
+    bool has_final_write = false;
+    grpc::ByteBuffer final_write;
+    grpc::Status final_status;
+
     sv_tag t_accept{this, svop::accept};
     sv_tag t_read{this, svop::read};
+    sv_tag t_write{this, svop::write};
     sv_tag t_done{this, svop::done};
     sv_tag t_finish{this, svop::finish};
 };
 
+// type: 0 request, 1 cancelled, 2 stream_msg, 3 client_done, 4 stream_writable
 struct sv_event {
-    int type = 0;  // 0 = request, 1 = cancelled
+    int type = 0;
     uint64_t id = 0;
     std::string method;
     std::string request;
     std::vector<std::pair<std::string, std::string>> metadata;
-    double deadline_ms = -1;  // -1 = none
+    double deadline_ms = -1;
 };
 
 struct rserver {
@@ -92,6 +114,11 @@ struct rserver {
         (void) n;
     }
 
+    void push_event_locked(sv_event ev) {
+        ready.push_back(std::move(ev));
+        signal();
+    }
+
     void post_accepts_locked() {
         while (!shutting && accepts_outstanding < accept_window &&
                (int) active.size() + accepts_outstanding < max_active) {
@@ -101,6 +128,29 @@ struct rserver {
             generic.RequestCall(&c->ctx, &c->stream, cq.get(), cq.get(),
                                 &c->t_accept);
             ++accepts_outstanding;
+        }
+    }
+
+    // Drain the write queue one op at a time; when it is empty and a
+    // terminal was requested, post it (WriteAndFinish or Finish).
+    void pump_locked(sv_call *c) {
+        if (c->dead || c->finish_posted) return;
+        if (c->write_inflight) return;
+        if (!c->write_queue.empty()) {
+            c->write_inflight = true;
+            ++c->pending;
+            c->stream.Write(c->write_queue.front(), &c->t_write);
+            return;
+        }
+        if (c->replied) {
+            c->finish_posted = true;
+            ++c->pending;
+            if (c->has_final_write) {
+                c->stream.WriteAndFinish(c->final_write, grpc::WriteOptions(),
+                                         c->final_status, &c->t_finish);
+            } else {
+                c->stream.Finish(c->final_status, &c->t_finish);
+            }
         }
     }
 
@@ -129,6 +179,7 @@ struct rserver {
                     // AsyncNotifyWhenDone fires only for started RPCs, so
                     // its tag counts as pending from here on.
                     c->pending += 2;
+                    c->read_inflight = true;
                     c->stream.Read(&c->request, &c->t_read);
                     post_accepts_locked();
                 } else {
@@ -136,25 +187,51 @@ struct rserver {
                 }
                 break;
             case svop::read:
+                c->read_inflight = false;
                 if (ok && !c->dead) {
-                    c->delivered = true;
                     sv_event ev;
-                    ev.type = 0;
                     ev.id = c->id;
-                    ev.method = c->ctx.method();
                     grpc_byte_buffer_to_string(c->request, &ev.request);
-                    for (const auto &kv : c->ctx.client_metadata())
-                        ev.metadata.emplace_back(
-                            std::string(kv.first.data(), kv.first.size()),
-                            std::string(kv.second.data(), kv.second.size()));
-                    auto dl = c->ctx.deadline();
-                    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  dl - std::chrono::system_clock::now())
-                                  .count();
-                    // gRPC encodes "no deadline" as a far-future time point.
-                    ev.deadline_ms = (ms > 0 && ms < 31536000000LL) ? (double) ms : -1;
-                    ready.push_back(std::move(ev));
-                    signal();
+                    if (!c->delivered) {
+                        c->delivered = true;
+                        ev.type = 0;
+                        ev.method = c->ctx.method();
+                        for (const auto &kv : c->ctx.client_metadata())
+                            ev.metadata.emplace_back(
+                                std::string(kv.first.data(), kv.first.size()),
+                                std::string(kv.second.data(), kv.second.size()));
+                        auto dl = c->ctx.deadline();
+                        auto ms =
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                dl - std::chrono::system_clock::now())
+                                .count();
+                        ev.deadline_ms =
+                            (ms > 0 && ms < 31536000000LL) ? (double) ms : -1;
+                    } else {
+                        ev.type = 2;  // stream_msg
+                    }
+                    push_event_locked(std::move(ev));
+                } else if (c->delivered && !c->dead) {
+                    sv_event ev;
+                    ev.type = 3;  // client_done (peer half-closed)
+                    ev.id = c->id;
+                    push_event_locked(std::move(ev));
+                } else {
+                    c->dead = true;
+                }
+                maybe_free_locked(c);
+                break;
+            case svop::write:
+                c->write_inflight = false;
+                if (ok && !c->dead) {
+                    c->write_queue.pop_front();
+                    if (c->write_queue.empty() && !c->replied) {
+                        sv_event ev;
+                        ev.type = 4;  // stream_writable
+                        ev.id = c->id;
+                        push_event_locked(std::move(ev));
+                    }
+                    pump_locked(c);
                 } else {
                     c->dead = true;
                 }
@@ -164,10 +241,9 @@ struct rserver {
                 if (c->delivered && !c->replied) {
                     c->dead = true;
                     sv_event ev;
-                    ev.type = 1;
+                    ev.type = 1;  // cancelled
                     ev.id = c->id;
-                    ready.push_back(std::move(ev));
-                    signal();
+                    push_event_locked(std::move(ev));
                 }
                 maybe_free_locked(c);
                 post_accepts_locked();
@@ -296,17 +372,88 @@ extern "C" SEXP grpc_r_server2_reply(SEXP xp, SEXP id, SEXP response,
         }
     }
 
-    ++c->pending;
     if (code == 0) {
         grpc::Slice slice(RAW(response), (size_t) Rf_xlength(response));
-        grpc::ByteBuffer resp(&slice, 1);
-        c->stream.WriteAndFinish(resp, grpc::WriteOptions(), grpc::Status::OK,
-                                 &c->t_finish);
+        c->final_write = grpc::ByteBuffer(&slice, 1);
+        c->has_final_write = true;
+        c->final_status = grpc::Status::OK;
     } else {
         const char *msg = Rf_translateCharUTF8(STRING_ELT(message, 0));
-        c->stream.Finish(grpc::Status(static_cast<grpc::StatusCode>(code), msg),
-                         &c->t_finish);
+        c->has_final_write = false;
+        c->final_status =
+            grpc::Status(static_cast<grpc::StatusCode>(code), msg);
     }
+    s->pump_locked(c);
+    return Rf_ScalarLogical(TRUE);
+}
+
+// args: server, id. Post one read; a "stream_msg" or "client_done" event
+// follows. FALSE if a read is already in flight or the call is over.
+extern "C" SEXP grpc_r_server2_read(SEXP xp, SEXP id) {
+    rserver *s = get_server(xp);
+    const uint64_t want = (uint64_t) Rf_asReal(id);
+    std::lock_guard<std::mutex> lock(s->mu);
+    auto it = s->active.find(want);
+    if (it == s->active.end()) return Rf_ScalarLogical(FALSE);
+    sv_call *c = it->second;
+    if (!c->delivered || c->dead || c->read_inflight || c->finish_posted)
+        return Rf_ScalarLogical(FALSE);
+    c->read_inflight = true;
+    ++c->pending;
+    c->stream.Read(&c->request, &c->t_read);
+    return Rf_ScalarLogical(TRUE);
+}
+
+// args: server, id, bytes (raw). TRUE if queued; FALSE if the queue is
+// full or the call cannot accept writes.
+extern "C" SEXP grpc_r_server2_send(SEXP xp, SEXP id, SEXP bytes) {
+    rserver *s = get_server(xp);
+    const uint64_t want = (uint64_t) Rf_asReal(id);
+    std::lock_guard<std::mutex> lock(s->mu);
+    auto it = s->active.find(want);
+    if (it == s->active.end()) return Rf_ScalarLogical(FALSE);
+    sv_call *c = it->second;
+    if (!c->delivered || c->dead || c->replied) return Rf_ScalarLogical(FALSE);
+    if (c->write_queue.size() >= c->write_cap) return Rf_ScalarLogical(FALSE);
+    grpc::Slice slice(RAW(bytes), (size_t) Rf_xlength(bytes));
+    c->write_queue.emplace_back(&slice, 1);
+    s->pump_locked(c);
+    return Rf_ScalarLogical(TRUE);
+}
+
+// args: server, id, status (int), message (chr), metadata. Ends the
+// stream after queued writes drain. TRUE if accepted.
+extern "C" SEXP grpc_r_server2_finish(SEXP xp, SEXP id, SEXP status,
+                                      SEXP message, SEXP metadata) {
+    rserver *s = get_server(xp);
+    const uint64_t want = (uint64_t) Rf_asReal(id);
+    const int code = Rf_asInteger(status);
+    if (code != 0 && TYPEOF(message) != STRSXP)
+        Rf_error("message must be a character string");
+
+    std::lock_guard<std::mutex> lock(s->mu);
+    auto it = s->active.find(want);
+    if (it == s->active.end()) return Rf_ScalarLogical(FALSE);
+    sv_call *c = it->second;
+    if (!c->delivered || c->replied || c->dead) return Rf_ScalarLogical(FALSE);
+    c->replied = true;
+    if (metadata != R_NilValue) {
+        SEXP names = Rf_getAttrib(metadata, R_NamesSymbol);
+        for (R_xlen_t i = 0; i < Rf_xlength(metadata); ++i) {
+            c->ctx.AddTrailingMetadata(
+                Rf_translateCharUTF8(STRING_ELT(names, i)),
+                Rf_translateCharUTF8(STRING_ELT(metadata, i)));
+        }
+    }
+    c->has_final_write = false;
+    if (code == 0) {
+        c->final_status = grpc::Status::OK;
+    } else {
+        const char *msg = Rf_translateCharUTF8(STRING_ELT(message, 0));
+        c->final_status =
+            grpc::Status(static_cast<grpc::StatusCode>(code), msg);
+    }
+    s->pump_locked(c);
     return Rf_ScalarLogical(TRUE);
 }
 
@@ -338,6 +485,8 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
         }
     }
 
+    static const char *type_names[] = {"request", "cancelled", "stream_msg",
+                                       "client_done", "stream_writable"};
     const R_xlen_t n = (R_xlen_t) batch.size();
     SEXP out = PROTECT(Rf_allocVector(VECSXP, n));
     const char *fields[] = {"type", "id", "method", "request", "metadata",
@@ -349,16 +498,23 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
         const sv_event &ev = batch[i];
         SEXP e = PROTECT(Rf_allocVector(VECSXP, 6));
         Rf_setAttrib(e, R_NamesSymbol, field_names);
-        SET_VECTOR_ELT(e, 0, Rf_mkString(ev.type == 0 ? "request" : "cancelled"));
+        SET_VECTOR_ELT(e, 0, Rf_mkString(type_names[ev.type]));
         SET_VECTOR_ELT(e, 1, Rf_ScalarReal((double) ev.id));
-        if (ev.type == 0) {
-            SET_VECTOR_ELT(e, 2, Rf_mkString(ev.method.c_str()));
+        if (ev.type == 0 || ev.type == 2) {
+            if (ev.type == 0) {
+                SET_VECTOR_ELT(e, 2, Rf_mkString(ev.method.c_str()));
+                SET_VECTOR_ELT(e, 4, grpc_pairs_to_r(ev.metadata));
+                SET_VECTOR_ELT(e, 5, ev.deadline_ms < 0
+                                         ? Rf_ScalarReal(NA_REAL)
+                                         : Rf_ScalarReal(ev.deadline_ms));
+            } else {
+                SET_VECTOR_ELT(e, 2, R_NilValue);
+                SET_VECTOR_ELT(e, 4, R_NilValue);
+                SET_VECTOR_ELT(e, 5, R_NilValue);
+            }
             SEXP req = Rf_allocVector(RAWSXP, (R_xlen_t) ev.request.size());
             SET_VECTOR_ELT(e, 3, req);
             std::memcpy(RAW(req), ev.request.data(), ev.request.size());
-            SET_VECTOR_ELT(e, 4, grpc_pairs_to_r(ev.metadata));
-            SET_VECTOR_ELT(e, 5, ev.deadline_ms < 0 ? Rf_ScalarReal(NA_REAL)
-                                                    : Rf_ScalarReal(ev.deadline_ms));
         } else {
             SET_VECTOR_ELT(e, 2, R_NilValue);
             SET_VECTOR_ELT(e, 3, R_NilValue);

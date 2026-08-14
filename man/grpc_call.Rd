@@ -44,8 +44,8 @@ Typed calls: when \code{method} is a \code{"grpc_method"} (from
 \code{Message}, the request type is validated against the method's
 \code{input_type} before sending, and the completion delivered by
 \code{\link{grpc_poll}} carries the decoded response as
-\code{response_message}. Streaming methods are refused until the
-streaming increment.
+\code{response_message}. Streaming methods are refused here; open
+them with \code{\link{grpc_stream}}.
 
 }
 \examples{

@@ -11,7 +11,7 @@ if (requireNamespace("RProtoBuf", quietly = TRUE)) {
   expect_inherits(svc, "grpc_service")
   expect_equal(svc$name, "demo.Echo")
   expect_equal(svc$package, "demo")
-  expect_equal(names(svc$methods), c("Say", "Watch"))
+  expect_equal(names(svc$methods), c("Say", "Watch", "Collect", "Chat"))
   m <- grpc_method(svc, "Say")
   expect_inherits(m, "grpc_method")
   expect_equal(m$path, "/demo.Echo/Say")

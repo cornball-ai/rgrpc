@@ -68,5 +68,25 @@ if (cri_ready && exists("rt")) {
   ev3 <- await(cl)[[1]]
   expect_equal(ev3$status_name, "OK")
 
+  ## GetContainerEvents: subscribe to the live event stream, hold it
+  ## open, cancel it. No container churn happens on this host during the
+  ## test, so the stream staying open (no terminal status within 1s) is
+  ## the assertion; message flow is covered by the loopback stream tests.
+  s <- grpc_stream(cl, grpc_method(rt, "GetContainerEvents"))
+  expect_true(grpc_send(s, RProtoBuf::P("runtime.v1.GetEventsRequest")$new()))
+  grpc_writes_done(s)
+  quiet <- grpc_poll(cl, timeout_ms = 1000L)
+  expect_false(any(vapply(quiet, function(e) e$kind == "stream_status",
+                          TRUE)))
+  grpc_cancel(s)
+  st <- NULL
+  t0 <- Sys.time()
+  while (is.null(st) && as.numeric(Sys.time() - t0, units = "secs") < 5) {
+    for (e in grpc_poll(cl, timeout_ms = 200L)) {
+      if (e$kind == "stream_status") st <- e
+    }
+  }
+  expect_equal(st$status_name, "CANCELLED")
+
   grpc_close(cl)
 }

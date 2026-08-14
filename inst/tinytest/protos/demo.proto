@@ -10,4 +10,6 @@ message Pong {
 service Echo {
   rpc Say (Ping) returns (Pong);
   rpc Watch (Ping) returns (stream Pong);
+  rpc Collect (stream Ping) returns (Pong);
+  rpc Chat (stream Ping) returns (stream Pong);
 }
