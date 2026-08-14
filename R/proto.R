@@ -52,7 +52,11 @@ grpc_service <- function(anchor, service = NULL) {
         stop("no services defined in '", RProtoBuf::name(fd), "'")
     }
     nms <- vapply(svcs, function(s) s$name, "")
-    fq <- if (nzchar(pkg)) paste0(pkg, ".", nms) else nms
+    if (nzchar(pkg)) {
+        fq <- paste0(pkg, ".", nms)
+    } else {
+        fq <- nms
+    }
     if (is.null(service)) {
         if (length(svcs) > 1L) {
             stop("file defines several services (",
@@ -61,7 +65,9 @@ grpc_service <- function(anchor, service = NULL) {
         idx <- 1L
     } else {
         idx <- match(service, fq)
-        if (is.na(idx)) idx <- match(service, nms)
+        if (is.na(idx)) {
+            idx <- match(service, nms)
+        }
         if (is.na(idx)) {
             stop("service '", service, "' not found; available: ",
                  paste(fq, collapse = ", "))
