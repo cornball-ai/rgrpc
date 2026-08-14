@@ -1,0 +1,35 @@
+#!/bin/sh
+## configure for the grpc R package
+##
+## System-linked build only: finds the distro gRPC C++ library via
+## pkg-config. There is no vendored fallback by design; see PLAN.md.
+
+: "${PKG_CONFIG=pkg-config}"
+
+if ! command -v "${PKG_CONFIG}" >/dev/null 2>&1; then
+    echo "ERROR: pkg-config not found." >&2
+    echo "  Ubuntu/Debian: sudo apt install pkgconf" >&2
+    exit 1
+fi
+
+for mod in "grpc++" "protobuf"; do
+    if ! "${PKG_CONFIG}" --exists "${mod}"; then
+        echo "ERROR: pkg-config cannot find '${mod}'." >&2
+        echo "  Ubuntu/Debian: sudo apt install libgrpc++-dev" >&2
+        echo "  (libgrpc++-dev, not libgrpc-dev: the C-only package leaves" >&2
+        echo "   the C++ runtime and grpc++.pc missing.)" >&2
+        exit 1
+    fi
+done
+
+GRPC_VERSION=$("${PKG_CONFIG}" --modversion grpc++)
+GRPC_CFLAGS=$("${PKG_CONFIG}" --cflags grpc++ protobuf)
+GRPC_LIBS=$("${PKG_CONFIG}" --libs grpc++ protobuf)
+
+echo "using gRPC C++ ${GRPC_VERSION} via ${PKG_CONFIG}"
+
+sed -e "s|@GRPC_CFLAGS@|${GRPC_CFLAGS}|" \
+    -e "s|@GRPC_LIBS@|${GRPC_LIBS}|" \
+    src/Makevars.in > src/Makevars
+
+exit 0

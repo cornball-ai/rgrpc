@@ -1,0 +1,27 @@
+Package: grpc
+Type: Package
+Title: Asynchronous 'gRPC' Client and Server Runtime
+Version: 0.0.1
+Date: 2026-08-14
+Authors@R: c(
+    person("Troy", "Hernandez", role = c("aut", "cre"), email = "troy@cornball.ai",
+           comment = c(ORCID = "0009-0005-4248-604X")),
+    person("cornball.ai", role = "cph"))
+Description: A first-class asynchronous 'gRPC' runtime built on the generic
+    asynchronous C++ API ('GenericStub', 'AsyncGenericService'). Requests and
+    responses cross the native boundary as method names plus opaque byte
+    buffers; 'RProtoBuf' supplies and consumes the bytes, so schemas are
+    loaded at runtime and no generated service stubs are required. Native
+    completion threads never call the R API: completions are queued natively
+    and delivered in batches on the R main thread. Complements 'RProtoBuf'
+    rather than replacing it. Links against the system 'gRPC' C++ library.
+License: Apache License (>= 2)
+URL: https://github.com/cornball-ai/grpc
+BugReports: https://github.com/cornball-ai/grpc/issues
+Depends: R (>= 4.4.0)
+Suggests: RProtoBuf, tinytest
+OS_type: unix
+SystemRequirements: gRPC C++ library with development headers
+    (Ubuntu/Debian: 'libgrpc++-dev'; found via 'pkg-config grpc++ protobuf').
+Encoding: UTF-8
+Config/roxygen2/version: 8.0.0
