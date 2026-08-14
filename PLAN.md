@@ -196,6 +196,42 @@ verifies them cheaply instead of deciding them.
    - Reproducibility comes from pinned distro package versions, not
      hermetic vendoring.
 
+## Spike results (increment 1, done 2026-08-14)
+
+Environment: noble, `libgrpc++-dev` 1.51.1-4.1build5, r2u
+`r-cran-rprotobuf` 0.4.27.
+
+- **Linkage verified, ODR closed.** `RProtoBuf.so` links
+  `libprotobuf.so.32`. gRPC's core libraries (`libgrpc.so.29`,
+  `libgrpc++.so.1.51`) link no protobuf at all; the one component that
+  does (`libgrpc++_reflection`) links the same `libprotobuf.so.32`. One
+  protobuf runtime on the system, and .so.32 is the only major present.
+- **Shim works.** Channel, completion queue, and generic-service server
+  create/destroy with finalizers and shutdown-then-drain ordering: 53
+  tinytest results pass in ~100 ms, including 10 ephemeral-port server
+  bind cycles. `R CMD check`: 0 errors, 0 warnings, 3 benign NOTEs.
+- **CRI proto loads.** cri-api v0.33.2 `api.proto` (2,128 lines, proto3)
+  loads via `readProtoFiles2(protoPath = ...)`. It imports gogoproto, so
+  `gogo.proto` and `google/protobuf/descriptor.proto` must be staged
+  under the import root; the increment-5 client should vendor these as
+  test fixtures.
+- **Combined session clean.** gRPC channel and server alive while the CRI
+  descriptor pool loads; `VersionRequest` round-trips; teardown clean.
+- **RProtoBuf gap found (not a blocker).** `fd$RuntimeService` returns a
+  `ServiceDescriptor`, but `method_count()` fails: the C routine
+  `ServiceDescriptor_method_count` is not in RProtoBuf's registration
+  table in 0.4.27. Upstream fix candidate, framed generically (register
+  the service/method introspection routines).
+- **Workaround that unblocks everything:** `as(fileDescriptor(msg),
+  "Message")` yields the `FileDescriptorProto`. From it, both CRI
+  services enumerate (RuntimeService: 30 methods; ImageService), with
+  `input_type`/`output_type` and streaming flags
+  (`GetContainerEvents` shows `server_streaming = TRUE`). Method path,
+  message types, and streaming arity — all the generic client needs —
+  are available at R level against stock CRAN 0.4.27.
+
+Dirk contact remains gated on an explicit greenlight from Troy.
+
 ## Verification
 
 - Interoperate with official C++, Go, and Python gRPC implementations
