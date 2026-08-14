@@ -16,7 +16,7 @@ for event loops such as Viento's.
 
 The founding use case was southbound interop — containerd (CRI) and etcd
 speak gRPC and nothing else — proven live in increment 5. The package's
-first consumer is the viento rebuild (see the split, below): a
+first consumer is the vientote rebuild (see the split, below): a
 gRPC-native orchestrator using this package for its control plane, its
 event-driven CRI container execution, and eventually its R executors.
 Beyond that: Triton, OTLP telemetry, gRPC-only cloud APIs, and the typed
@@ -176,7 +176,7 @@ verifies them cheaply instead of deciding them.
    - Explicit read/write readiness, half-close, cancellation, and bounded
      buffering.
    - Real-world target: CRI `GetContainerEvents` (server stream from
-     containerd), the call that makes the viento rebuild's container
+     containerd), the call that makes vientote's container
      execution event-driven instead of polling.
 
 7. **Operational surface**
@@ -297,7 +297,10 @@ rejected; do not reintroduce them.
 - Its engine-adapter contract stays as-is; the fidelity question is
   moot for CLI adapters, which poll because that is what CLIs do.
 
-**viento** (gRPC-native rebuild, takes the name at the rename):
+**vientote** (the gRPC-native rebuild; working name, decided
+2026-08-14 — the augmentative pairs with vientito and decouples the
+rebuild's start from the rename; whether it claims the bare `viento`
+name at 1.0 stays open and blocks nothing):
 
 - gRPC control plane from line one: bidirectional node-control streams,
   mTLS peer identity, deadlines as a primitive, protobuf `.proto`
@@ -314,6 +317,13 @@ rejected; do not reintroduce them.
   No shared core package; vientito's copies stand as-is. Semantics
   preserved: WAL-before-ack, logical operation ids, boot/session
   fencing, delivery confirmation, reconciliation.
+- Design input before the control plane is drafted: mine the
+  permissively licensed incumbents for contract shapes, protos first,
+  implementations only for specific questions. swarmkit (Apache-2.0,
+  Nomad-sized, real gRPC manager/worker control plane — its
+  dispatcher.proto session/heartbeat/assignment-stream design is the
+  closest prior art) plus kubelet node-lifecycle patterns and
+  api-machinery conventions from k8s. Nomad itself is BUSL and out.
 - Gets its own plan document in its own repo when the rebuild starts;
   this section is the charter, not the plan.
 
@@ -327,11 +337,12 @@ Sequencing:
 3. The rename (current repo -> vientito, one deliberate pass while
    private: repo, unit names, config docs) happens when grpc is ready,
    freeing the name.
-4. The viento rebuild starts: crown-jewel copy, then control plane,
-   then CRI execution, then executors.
+4. The vientote rebuild starts (its repo can exist any time; the
+   working name does not wait on the rename): crown-jewel copy, then
+   control plane, then CRI execution, then executors.
 
 Rationale on record: gRPC is the industry-standard control-plane
-substrate for this class of system; viento-the-rebuild is instantly
+substrate for this class of system; vientote is instantly
 legible to that world and open to non-R agents via generated stubs.
 Dogfooding the rebuild is how grpc earns maturity, and grpc is also the
 planned typed/streaming channel between glinty's Flutter frontend and R
@@ -367,7 +378,7 @@ existing ones.
 
 This declines re-encoding the existing nanonext channel in place, and
 the split (below) makes it permanent: vientito keeps JSON-on-nanonext
-until retirement, and the viento rebuild is protobuf/gRPC by design —
+until retirement, and vientote is protobuf/gRPC by design —
 new surfaces with `.proto` contracts, not a retrofit.
 
 ## Non-goals
@@ -386,7 +397,7 @@ new surfaces with `.proto` contracts, not a retrofit.
 - Guaranteeing fork safety after a channel is open (the failure mode is
   documented instead)
 - Beating nanonext on R-to-R latency
-- Starting the viento rebuild before grpc has streaming and TLS
+- Starting the vientote rebuild before grpc has streaming and TLS
   (increments 6-7), or stalling vientito's phase 1 for it
 
 ## Open decisions
@@ -403,6 +414,6 @@ commitment), distribution channel (r-universe/drat plus apt/Docker),
 event-loop and promises/mirai integration (increment 2), Rust/tonic
 (dropped), protobuf-on-nanonext (declined; see encoding decision),
 license (Apache-2.0, matching gRPC; RProtoBuf is GPL (>= 2) per CRAN
-0.4.27, accepted as plumbing-level exposure), the vientito/viento split
-(vientito finishes on nanonext and freezes; the gRPC-native rebuild
-takes the viento name — see the split section).
+0.4.27, accepted as plumbing-level exposure), the vientito/vientote split
+(vientito finishes on nanonext and freezes; vientote is the gRPC-native
+rebuild, bare `viento` name parked — see the split section).
