@@ -136,7 +136,7 @@ struct rserver {
     // Drain the write queue one op at a time; when it is empty and a
     // terminal was requested, post it (WriteAndFinish or Finish).
     void pump_locked(sv_call *c) {
-        if (c->dead || c->finish_posted) return;
+        if (shutting || c->dead || c->finish_posted) return;
         if (c->write_inflight) return;
         if (!c->write_queue.empty()) {
             c->write_inflight = true;
@@ -180,9 +180,16 @@ struct rserver {
                     active[c->id] = c;
                     // AsyncNotifyWhenDone fires only for started RPCs, so
                     // its tag counts as pending from here on.
-                    c->pending += 2;
-                    c->read_inflight = true;
-                    c->stream.Read(&c->request, &c->t_read);
+                    ++c->pending;
+                    if (shutting) {
+                        // No ops on a shutting CQ; the done tag still
+                        // fires (the RPC is cancelled) and frees the slot.
+                        c->dead = true;
+                    } else {
+                        ++c->pending;
+                        c->read_inflight = true;
+                        c->stream.Read(&c->request, &c->t_read);
+                    }
                     post_accepts_locked();
                 } else {
                     maybe_free_locked(c);  // shutdown: slot never matched

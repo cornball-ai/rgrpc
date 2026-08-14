@@ -1,3 +1,25 @@
+# grpc 0.0.1.7
+
+- Fixed a completion-queue shutdown race that aborted the process when
+  closing a client (or server) with stream operations in flight: the
+  drain thread could post a follow-on op after `cq.Shutdown()`. A
+  `shutting` flag now suppresses all drain-thread op posts during
+  close, on both client and server.
+- Forced-error cleanup tests: post-close operations error cleanly,
+  finalizers with work in flight, create/destroy churn.
+- Verified under valgrind (0 errors, 0 definite/indirect leaks;
+  possibly-lost noise from gRPC/absl thread-locals and R
+  remains), AddressSanitizer
+  (clean), and ThreadSanitizer (all reports trace to the
+  uninstrumented system libgrpc boundary; none in package code).
+- Reference node image under `docker/`: two-stage build on
+  `rocker/r2u:noble`, runtime carries only `libgrpc++1.51t64` and
+  `r-cran-rprotobuf`; built and smoke-tested. The base image release
+  must match the build host's — the binary is tied to the distro ABI.
+- configure and `SystemRequirements` now name `libprotobuf-dev`
+  alongside `libgrpc++-dev` (not pulled automatically under
+  `--no-install-recommends`).
+
 # grpc 0.0.1.6
 
 - Operational surface: `grpc_tls()` builds PEM credentials for both

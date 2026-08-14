@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  _R_CHECK_FORCE_SUGGESTS_: "false"
+
+jobs:
+  ci:
+    # Ubuntu only, deliberately: the package links the distro gRPC C++
+    # library (see PLAN.md platform commitment). ubuntu-latest is noble,
+    # the same release the ABI pairing targets.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgrpc++-dev libprotobuf-dev pkgconf
+
+      - name: Setup
+        uses: eddelbuettel/github-actions/r-ci@master
+        with:
+          backend: RAPT
+
+      - name: Dependencies
+        # install_all includes Suggests: RProtoBuf and tinytest, so the
+        # typed/proto tests run instead of skipping.
+        run: ./run.sh install_all
+
+      - name: Test
+        run: ./run.sh run_tests
+
+      - name: At-home suite
+        # R CMD check runs tinytest with at_home = FALSE, which skips
+        # every server-bind test (streaming, TLS, shutdown stress).
+        # This step installs the checkout and runs the full suite with
+        # at_home = TRUE, failing on any failed expectation.
+        run: |
+          mkdir -p "$HOME/Rlib"
+          R CMD INSTALL -l "$HOME/Rlib" .
+          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(grpc); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res))'

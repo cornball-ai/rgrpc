@@ -6,3 +6,5 @@
 ^LICENSE$
 ^CLAUDE\.md$
 ^tasks$
+^docker$
+^tools$

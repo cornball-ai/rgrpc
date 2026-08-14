@@ -136,6 +136,10 @@ struct client {
     std::deque<cl_event> ready;
     uint64_t next_id = 1;
     bool closed = false;
+    // Set (under mu) before cq.Shutdown(): suppresses every op post from
+    // the completion thread. Starting an op on a shut-down CQ aborts
+    // (grpc_cq_begin_op assertion); already-started ops drain fine.
+    bool shutting = false;
 
     void signal() {
         uint64_t one = 1;
@@ -146,7 +150,7 @@ struct client {
     // ---- stream helpers; all run under mu ----
 
     void s_post_read_locked(stream_state *s) {
-        if (s->read_inflight || s->reads_closed || s->broken ||
+        if (shutting || s->read_inflight || s->reads_closed || s->broken ||
             s->finish_posted || !s->started)
             return;
         s->read_inflight = true;
@@ -155,7 +159,7 @@ struct client {
     }
 
     void s_pump_writes_locked(stream_state *s) {
-        if (!s->started || s->broken || s->finish_posted) return;
+        if (shutting || !s->started || s->broken || s->finish_posted) return;
         if (!s->write_inflight && !s->write_queue.empty()) {
             s->write_inflight = true;
             ++s->pending;
@@ -171,7 +175,7 @@ struct client {
     }
 
     void s_try_finish_locked(stream_state *s) {
-        if (!s->want_finish || s->finish_posted) return;
+        if (shutting || !s->want_finish || s->finish_posted) return;
         if (s->read_inflight || s->write_inflight || s->wdone_inflight) return;
         if (!s->started) return;
         s->finish_posted = true;
@@ -301,6 +305,7 @@ void client_shutdown(client *c) {
     c->closed = true;
     {
         std::lock_guard<std::mutex> lock(c->mu);
+        c->shutting = true;
         for (auto &kv : c->calls) kv.second->context.TryCancel();
         for (auto &kv : c->streams) kv.second->context.TryCancel();
     }
