@@ -132,6 +132,15 @@ extern "C" SEXP grpc_r_server_destroy(SEXP xp) {
 
 // ---- registration ----
 
+// client.cpp
+extern "C" SEXP grpc_r_client_create(SEXP);
+extern "C" SEXP grpc_r_client_close(SEXP);
+extern "C" SEXP grpc_r_client_fd(SEXP);
+extern "C" SEXP grpc_r_client_pending(SEXP);
+extern "C" SEXP grpc_r_client_poll(SEXP, SEXP, SEXP);
+extern "C" SEXP grpc_r_call_start(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
+extern "C" SEXP grpc_r_call_cancel(SEXP, SEXP);
+
 static const R_CallMethodDef call_methods[] = {
     {"grpc_r_version",         (DL_FUNC) &grpc_r_version,         0},
     {"grpc_r_channel_create",  (DL_FUNC) &grpc_r_channel_create,  1},
@@ -141,6 +150,13 @@ static const R_CallMethodDef call_methods[] = {
     {"grpc_r_server_create",   (DL_FUNC) &grpc_r_server_create,   1},
     {"grpc_r_server_port",     (DL_FUNC) &grpc_r_server_port,     1},
     {"grpc_r_server_destroy",  (DL_FUNC) &grpc_r_server_destroy,  1},
+    {"grpc_r_client_create",   (DL_FUNC) &grpc_r_client_create,   1},
+    {"grpc_r_client_close",    (DL_FUNC) &grpc_r_client_close,    1},
+    {"grpc_r_client_fd",       (DL_FUNC) &grpc_r_client_fd,       1},
+    {"grpc_r_client_pending",  (DL_FUNC) &grpc_r_client_pending,  1},
+    {"grpc_r_client_poll",     (DL_FUNC) &grpc_r_client_poll,     3},
+    {"grpc_r_call_start",      (DL_FUNC) &grpc_r_call_start,      6},
+    {"grpc_r_call_cancel",     (DL_FUNC) &grpc_r_call_cancel,     2},
     {NULL, NULL, 0}
 };
 
