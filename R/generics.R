@@ -96,6 +96,12 @@ grpc_send <- function(x, msg, ...) {
 #' even an abortive \code{\link{grpc_finish}} cannot get its status
 #' past a peer that has stopped reading; the peer sees \code{CANCELLED}.
 #'
+#' For a \code{"grpc_request"} the (invisible) return is \code{TRUE} if
+#' cancellation was requested on a live call and \code{FALSE} if the
+#' call was already terminal. \code{FALSE} guarantees no further
+#' messages can be delivered on the stream; it is \emph{not} a receipt
+#' that any terminal status reached the peer.
+#'
 #' @param x A \code{"grpc_call"}, \code{"grpc_stream"}, or
 #'   \code{"grpc_request"} object.
 #' @examples

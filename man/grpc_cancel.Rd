@@ -17,6 +17,14 @@ Cancelling something already completed is a no-op. On a server, a
 even an abortive \code{\link{grpc_finish}} cannot get its status
 past a peer that has stopped reading; the peer sees \code{CANCELLED}.
 }
+\details{
+For a \code{"grpc_request"} the (invisible) return is \code{TRUE} if
+cancellation was requested on a live call and \code{FALSE} if the
+call was already terminal. \code{FALSE} guarantees no further
+messages can be delivered on the stream; it is \emph{not} a receipt
+that any terminal status reached the peer.
+
+}
 \examples{
 \dontrun{grpc_cancel(call)}
 }

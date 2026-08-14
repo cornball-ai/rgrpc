@@ -331,9 +331,12 @@ session design:
   silently fails (`GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA = 0`,
   `GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS = 1`); the server tolerance
   matters because gRPC's default kills clients pinging more than once
-  per 5 minutes with a too_many_pings GOAWAY. The behavioral test
-  proves both directions: fast pings die at a default server and
-  survive at a tolerant one.
+  per 5 minutes with a too_many_pings GOAWAY. Behavioral tests prove
+  client-originated pings (with an active stream and on a call-less
+  connection) and the server's receive tolerance; server-originated
+  dead-peer *detection* is not testable on loopback (TCP answers pings
+  in the kernel regardless of the app) — those arguments are plumbed
+  identically and taken on the gRPC core's word.
 - **Abortive finish** (`grpc_finish(drain = FALSE)`): discards queued
   writes and prioritizes the terminal status — the fence notice
   (ABORTED on session replacement, FAILED_PRECONDITION on lease
@@ -343,7 +346,10 @@ session design:
   (12 x 1MB at a non-reading client).
 - **Server-side cancel** (`grpc_cancel` on a request): hard escalation
   when even the abortive status is stalled behind the peer's exhausted
-  flow-control window; the peer sees CANCELLED.
+  flow-control window; the peer sees CANCELLED. Its FALSE return means
+  the call was already terminal — no further stale writes possible —
+  not that the fence status was received; there is no delivery receipt
+  in the protocol.
 
 ## Verification
 

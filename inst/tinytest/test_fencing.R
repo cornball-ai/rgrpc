@@ -80,8 +80,12 @@ if (at_home()) {
   ## the client is not polling; normally the in-flight write is stalled
   ## by flow control and even the abortive status cannot get out, so
   ## cancel finds a live call (TRUE). Under heavy slowdown (valgrind)
-  ## the write can complete and the fence deliver first, in which case
-  ## cancel correctly reports FALSE — the fence already succeeded.
+  ## the write can complete and the finish post first, in which case
+  ## cancel reports FALSE. FALSE means only that the call is no longer
+  ## live server-side — no further stale writes are possible — NOT that
+  ## the ABORTED status reached the peer (a dead call reports FALSE
+  ## too). In this controlled scenario the client is alive, so on the
+  ## FALSE path the completed finish does deliver ABORTED.
   Sys.sleep(0.3)
   cancelled <- grpc_cancel(f$req)
   r <- drain_client(f$cl)

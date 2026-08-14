@@ -67,7 +67,8 @@ grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
         if (is.null(x)) {
             return(NULL)
         }
-        stopifnot(is.numeric(x), length(x) == 1L, x > 0)
+        stopifnot(is.numeric(x), length(x) == 1L, is.finite(x),
+                  x == trunc(x), x >= 1, x <= .Machine$integer.max)
         as.integer(x)
     }
     xp <- .Call(grpc_r_server2_create, address, as.integer(accept_window),
