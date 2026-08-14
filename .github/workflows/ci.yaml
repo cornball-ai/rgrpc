@@ -29,7 +29,19 @@ jobs:
           backend: RAPT
 
       - name: Dependencies
-        run: ./run.sh install_deps
+        # install_all includes Suggests: RProtoBuf and tinytest, so the
+        # typed/proto tests run instead of skipping.
+        run: ./run.sh install_all
 
       - name: Test
         run: ./run.sh run_tests
+
+      - name: At-home suite
+        # R CMD check runs tinytest with at_home = FALSE, which skips
+        # every server-bind test (streaming, TLS, shutdown stress).
+        # This step installs the checkout and runs the full suite with
+        # at_home = TRUE, failing on any failed expectation.
+        run: |
+          mkdir -p "$HOME/Rlib"
+          R CMD INSTALL -l "$HOME/Rlib" .
+          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(grpc); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res))'

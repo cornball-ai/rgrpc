@@ -296,12 +296,20 @@ Dirk contact remains gated on an explicit greenlight from Troy.
   mapping): full suite plus a dedicated TLS/mTLS exercise, since
   subprocesses segfault under a preloaded libtsan and the TLS tests
   shell out to openssl — certs pre-generated outside instead. Every
-  report (253 + 27) traces to the uninstrumented system libgrpc
-  boundary: synchronization edges inside `libgrpc.so` are invisible to
-  TSan, so batch handoffs to the completion thread look unsynchronized.
-  No report has both racing accesses in package code; the threading
-  contract (all shared state under the mutex) has no TSan-visible
-  violation.
+  report (~250-320 per run; composition varies) traces to the
+  uninstrumented system libgrpc boundary: synchronization edges inside
+  `libgrpc.so` are invisible to TSan, so batch handoffs to the
+  completion thread look unsynchronized. The enforced criterion
+  (`tools/sanitize.sh`, fatal on violation, both logs): no racing
+  access may have a package source frame in its top two frames, except
+  an access whose own #0 is the allocator — construction paired
+  against first post-handoff use is the known false-positive shape
+  (`new call_state` in `grpc_r_call_start` vs `FinishOp` inside
+  libgrpc). Deallocation is not exempt. The analyzer was validated in
+  both directions: passes the known-false-positive log, trips on
+  synthetic memcpy-race and delete-race reports with package frames.
+  Under that criterion the threading contract (all shared state under
+  the mutex) has no TSan-visible violation.
 - **Reference node image** (`docker/`): two-stage build on
   `rocker/r2u:noble` — build stage compiles against `libgrpc++-dev`,
   runtime stage carries only `libgrpc++1.51t64` + `r-cran-rprotobuf`.

@@ -77,6 +77,8 @@ if (at_home()) {
   ## with large payloads keep enough writes in flight that removing the
   ## guard aborts the process (verified by mutation, 5/5).
   payload <- as.raw(rep(1L, 131072))
+  nreqs <- integer(20)
+  sends_ok <- logical(20)
   for (i in 1:20) {
     srv <- grpc_server()
     cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
@@ -88,30 +90,42 @@ if (at_home()) {
     reqs <- list()
     t0 <- Sys.time()
     while (length(reqs) < 32 &&
-           as.numeric(Sys.time() - t0, units = "secs") < 5) {
+           as.numeric(Sys.time() - t0, units = "secs") < 10) {
       for (ev in grpc_poll(srv, timeout_ms = 200L)) {
         if (ev$type == "request") reqs[[length(reqs) + 1L]] <- ev
       }
     }
-    for (req in reqs) for (j in 1:8) grpc_send(req, payload)
+    nreqs[i] <- length(reqs)
+    sends_ok[i] <- all(vapply(reqs, function(req) {
+      all(vapply(1:8, function(j) grpc_send(req, payload), logical(1)))
+    }, logical(1)))
     grpc_close(srv)
     grpc_close(cl)
   }
+  ## non-vacuity: every iteration built the full load before its close
+  expect_equal(nreqs, rep(32L, 20L))
+  expect_true(all(sends_ok))
 
-  ## ---- accepts matching concurrently with shutdown ----
-  ## Reaches the shutting branch of the accept handler: a call matched
-  ## just as the server closes must not post its first read.
+  ## ---- hostile shutdown with accepts racing the close ----
+  ## A burst of new calls issued immediately before close, so accept
+  ## completions race the shutdown sequence. Mutation testing could not
+  ## make the accept-branch guard crash (Server::Shutdown resolves
+  ## unconsumed accepts before the CQ shutdown), so this is a shutdown
+  ## stress, not proof of branch coverage.
+  ncalls <- integer(5)
   for (i in 1:5) {
     srv <- grpc_server()
     cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
-    for (j in 1:5) {
+    ids <- vapply(1:5, function(j) {
       grpc_call(cl, "/x/Y", raw(0), deadline_ms = 5000,
-                wait_for_ready = TRUE)
-    }
+                wait_for_ready = TRUE)$id
+    }, numeric(1))
+    ncalls[i] <- length(unique(ids))
     grpc_close(srv)
     grpc_close(cl)
   }
-  expect_true(TRUE)
+  ## non-vacuity: every burst actually started its calls
+  expect_equal(ncalls, rep(5L, 5L))
 
   ## ---- create/destroy churn with work in flight ----
   for (i in 1:20) {
