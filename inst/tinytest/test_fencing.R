@@ -77,14 +77,20 @@ if (at_home()) {
   expect_true(all(f$sent))
   expect_true(grpc_finish(f$req, status = "ABORTED", message = "fence",
                           drain = FALSE))
-  ## the client is not polling; the in-flight write is stalled by flow
-  ## control, so even the abortive status cannot get out
+  ## the client is not polling; normally the in-flight write is stalled
+  ## by flow control and even the abortive status cannot get out, so
+  ## cancel finds a live call (TRUE). Under heavy slowdown (valgrind)
+  ## the write can complete and the fence deliver first, in which case
+  ## cancel correctly reports FALSE — the fence already succeeded.
   Sys.sleep(0.3)
-  expect_true(grpc_cancel(f$req))
+  cancelled <- grpc_cancel(f$req)
   r <- drain_client(f$cl)
   expect_false(is.null(r$st))
-  ## CANCELLED normally; ABORTED if the finish won the race
-  expect_true(r$st$status_name %in% c("CANCELLED", "ABORTED"))
+  if (isTRUE(cancelled)) {
+    expect_true(r$st$status_name %in% c("CANCELLED", "ABORTED"))
+  } else {
+    expect_equal(r$st$status_name, "ABORTED")
+  }
   grpc_close(f$cl)
   grpc_close(f$srv)
 }
