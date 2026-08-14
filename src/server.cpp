@@ -88,6 +88,8 @@ struct sv_event {
     std::string request;
     std::vector<std::pair<std::string, std::string>> metadata;
     double deadline_ms = -1;
+    std::string peer;
+    std::vector<std::string> identity;
 };
 
 struct rserver {
@@ -207,6 +209,13 @@ struct rserver {
                                 .count();
                         ev.deadline_ms =
                             (ms > 0 && ms < 31536000000LL) ? (double) ms : -1;
+                        ev.peer = c->ctx.peer();
+                        auto auth = c->ctx.auth_context();
+                        if (auth) {
+                            for (const auto &idv : auth->GetPeerIdentity())
+                                ev.identity.emplace_back(idv.data(),
+                                                         idv.size());
+                        }
                     } else {
                         ev.type = 2;  // stream_msg
                     }
@@ -292,9 +301,12 @@ rserver *get_server(SEXP xp) {
 
 }  // namespace
 
-// args: address (chr), accept_window (int), max_active (int)
+// args: address (chr), accept_window (int), max_active (int), tls (lgl),
+//       ca/cert/key PEM strings (chr or NULL), require_client (lgl)
 extern "C" SEXP grpc_r_server2_create(SEXP address, SEXP accept_window,
-                                      SEXP max_active) {
+                                      SEXP max_active, SEXP tls, SEXP ca,
+                                      SEXP cert, SEXP key,
+                                      SEXP require_client) {
     const char *addr = Rf_translateCharUTF8(STRING_ELT(address, 0));
     int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (fd < 0) Rf_error("eventfd creation failed");
@@ -302,8 +314,28 @@ extern "C" SEXP grpc_r_server2_create(SEXP address, SEXP accept_window,
     s->event_fd = fd;
     s->accept_window = Rf_asInteger(accept_window);
     s->max_active = Rf_asInteger(max_active);
+    std::shared_ptr<grpc::ServerCredentials> creds;
+    if (Rf_asLogical(tls) == TRUE) {
+        grpc::SslServerCredentialsOptions opts(
+            Rf_asLogical(require_client) == TRUE
+                ? GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_AND_VERIFY
+                : GRPC_SSL_DONT_REQUEST_CLIENT_CERTIFICATE);
+        auto pem = [](SEXP x) {
+            return x == R_NilValue
+                       ? std::string()
+                       : std::string(Rf_translateCharUTF8(STRING_ELT(x, 0)));
+        };
+        opts.pem_root_certs = pem(ca);
+        grpc::SslServerCredentialsOptions::PemKeyCertPair pair;
+        pair.private_key = pem(key);
+        pair.cert_chain = pem(cert);
+        opts.pem_key_cert_pairs.push_back(pair);
+        creds = grpc::SslServerCredentials(opts);
+    } else {
+        creds = grpc::InsecureServerCredentials();
+    }
     grpc::ServerBuilder builder;
-    builder.AddListeningPort(addr, grpc::InsecureServerCredentials(), &s->port);
+    builder.AddListeningPort(addr, creds, &s->port);
     builder.RegisterAsyncGenericService(&s->generic);
     s->cq = builder.AddCompletionQueue();
     s->server = builder.BuildAndStart();
@@ -489,17 +521,19 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
                                        "client_done", "stream_writable"};
     const R_xlen_t n = (R_xlen_t) batch.size();
     SEXP out = PROTECT(Rf_allocVector(VECSXP, n));
-    const char *fields[] = {"type", "id", "method", "request", "metadata",
-                            "deadline_ms"};
-    SEXP field_names = PROTECT(Rf_allocVector(STRSXP, 6));
-    for (int j = 0; j < 6; ++j) SET_STRING_ELT(field_names, j, Rf_mkChar(fields[j]));
+    const char *fields[] = {"type",        "id",   "method",
+                            "request",     "metadata", "deadline_ms",
+                            "peer",        "peer_identity"};
+    SEXP field_names = PROTECT(Rf_allocVector(STRSXP, 8));
+    for (int j = 0; j < 8; ++j) SET_STRING_ELT(field_names, j, Rf_mkChar(fields[j]));
 
     for (R_xlen_t i = 0; i < n; ++i) {
         const sv_event &ev = batch[i];
-        SEXP e = PROTECT(Rf_allocVector(VECSXP, 6));
+        SEXP e = PROTECT(Rf_allocVector(VECSXP, 8));
         Rf_setAttrib(e, R_NamesSymbol, field_names);
         SET_VECTOR_ELT(e, 0, Rf_mkString(type_names[ev.type]));
         SET_VECTOR_ELT(e, 1, Rf_ScalarReal((double) ev.id));
+        for (int j = 2; j < 8; ++j) SET_VECTOR_ELT(e, j, R_NilValue);
         if (ev.type == 0 || ev.type == 2) {
             if (ev.type == 0) {
                 SET_VECTOR_ELT(e, 2, Rf_mkString(ev.method.c_str()));
@@ -507,19 +541,15 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
                 SET_VECTOR_ELT(e, 5, ev.deadline_ms < 0
                                          ? Rf_ScalarReal(NA_REAL)
                                          : Rf_ScalarReal(ev.deadline_ms));
-            } else {
-                SET_VECTOR_ELT(e, 2, R_NilValue);
-                SET_VECTOR_ELT(e, 4, R_NilValue);
-                SET_VECTOR_ELT(e, 5, R_NilValue);
+                SET_VECTOR_ELT(e, 6, Rf_mkString(ev.peer.c_str()));
+                SEXP ids = Rf_allocVector(STRSXP, (R_xlen_t) ev.identity.size());
+                SET_VECTOR_ELT(e, 7, ids);
+                for (R_xlen_t k = 0; k < (R_xlen_t) ev.identity.size(); ++k)
+                    SET_STRING_ELT(ids, k, Rf_mkChar(ev.identity[k].c_str()));
             }
             SEXP req = Rf_allocVector(RAWSXP, (R_xlen_t) ev.request.size());
             SET_VECTOR_ELT(e, 3, req);
             std::memcpy(RAW(req), ev.request.data(), ev.request.size());
-        } else {
-            SET_VECTOR_ELT(e, 2, R_NilValue);
-            SET_VECTOR_ELT(e, 3, R_NilValue);
-            SET_VECTOR_ELT(e, 4, R_NilValue);
-            SET_VECTOR_ELT(e, 5, R_NilValue);
         }
         SET_VECTOR_ELT(out, i, e);
         UNPROTECT(1);

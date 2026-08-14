@@ -21,6 +21,8 @@ grpc_status_codes <- c(OK = 0L, CANCELLED = 1L, UNKNOWN = 2L,
 #'
 #' @param target Server address, e.g. \code{"localhost:50051"} or
 #'   \code{"unix:///run/containerd/containerd.sock"}.
+#' @param credentials \code{NULL} for a plaintext channel, or a
+#'   \code{\link{grpc_tls}} object.
 #' @return An object of class \code{"grpc_client"}.
 #' @examples
 #' \dontrun{
@@ -31,9 +33,16 @@ grpc_status_codes <- c(OK = 0L, CANCELLED = 1L, UNKNOWN = 2L,
 #' grpc_close(client)
 #' }
 #' @export
-grpc_client <- function(target) {
+grpc_client <- function(target, credentials = NULL) {
     stopifnot(is.character(target), length(target) == 1L)
-    xp <- .Call(grpc_r_client_create, target)
+    tls <- inherits(credentials, "grpc_tls")
+    if (!is.null(credentials) && !tls) {
+        stop("credentials must be a grpc_tls object")
+    }
+    xp <- .Call(grpc_r_client_create, target, tls,
+                if (tls) credentials$ca, if (tls) credentials$cert,
+                if (tls) credentials$key,
+                if (tls) credentials$target_name_override)
     structure(list(ptr = xp, target = target,
                    calls = new.env(parent = emptyenv())),
               class = "grpc_client")
