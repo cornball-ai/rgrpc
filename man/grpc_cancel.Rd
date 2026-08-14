@@ -6,12 +6,16 @@
 grpc_cancel(x)
 }
 \arguments{
-\item{x}{A \code{"grpc_call"} or \code{"grpc_stream"} object.}
+\item{x}{A \code{"grpc_call"}, \code{"grpc_stream"}, or
+\code{"grpc_request"} object.}
 }
 \description{
 Requests cancellation. The call or stream still completes through
 \code{\link{grpc_poll}}, normally with status \code{CANCELLED}.
-Cancelling something already completed is a no-op.
+Cancelling something already completed is a no-op. On a server, a
+\code{"grpc_request"} can be cancelled as the hard escalation when
+even an abortive \code{\link{grpc_finish}} cannot get its status
+past a peer that has stopped reading; the peer sees \code{CANCELLED}.
 }
 \examples{
 \dontrun{grpc_cancel(call)}

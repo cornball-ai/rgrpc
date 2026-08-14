@@ -19,10 +19,25 @@ grpc_status_codes <- c(OK = 0L, CANCELLED = 1L, UNKNOWN = 2L,
 #' and signals an eventfd. The background thread never calls the R API;
 #' completions are received on the R main thread via \code{\link{grpc_poll}}.
 #'
+#' Keepalive: with \code{keepalive_ms} set, the client pings the peer
+#' every \code{keepalive_ms} of transport inactivity and declares the
+#' connection dead \code{keepalive_timeout_ms} after an unanswered ping
+#' (gRPC's default timeout is 20000). Pings are enabled without payload
+#' data and without active calls, so a quiet connection is genuinely
+#' watched. The server must tolerate the cadence: see
+#' \code{min_ping_interval_ms} in \code{\link{grpc_server}} — gRPC's
+#' server default kills clients that ping more often than every 5
+#' minutes.
+#'
 #' @param target Server address, e.g. \code{"localhost:50051"} or
 #'   \code{"unix:///run/containerd/containerd.sock"}.
 #' @param credentials \code{NULL} for a plaintext channel, or a
 #'   \code{\link{grpc_tls}} object.
+#' @param keepalive_ms Interval of transport inactivity after which an
+#'   HTTP/2 keepalive ping is sent. \code{NULL} (default) disables
+#'   keepalive.
+#' @param keepalive_timeout_ms Time to wait for a ping answer before
+#'   the connection is declared dead.
 #' @return An object of class \code{"grpc_client"}.
 #' @examples
 #' \dontrun{
@@ -33,15 +48,24 @@ grpc_status_codes <- c(OK = 0L, CANCELLED = 1L, UNKNOWN = 2L,
 #' grpc_close(client)
 #' }
 #' @export
-grpc_client <- function(target, credentials = NULL) {
+grpc_client <- function(target, credentials = NULL, keepalive_ms = NULL,
+                        keepalive_timeout_ms = NULL) {
     stopifnot(is.character(target), length(target) == 1L)
     tls <- inherits(credentials, "grpc_tls")
     if (!is.null(credentials) && !tls) {
         stop("credentials must be a grpc_tls object")
     }
+    ms <- function(x) {
+        if (is.null(x)) {
+            return(NULL)
+        }
+        stopifnot(is.numeric(x), length(x) == 1L, x > 0)
+        as.integer(x)
+    }
     xp <- .Call(grpc_r_client_create, target, tls, if (tls) credentials$ca,
         if (tls) credentials$cert, if (tls) credentials$key,
-        if (tls) credentials$target_name_override)
+        if (tls) credentials$target_name_override,
+        ms(keepalive_ms), ms(keepalive_timeout_ms))
     structure(list(ptr = xp, target = target,
                    calls = new.env(parent = emptyenv())),
               class = "grpc_client")

@@ -24,6 +24,7 @@ export(grpc_version)
 export(grpc_writes_done)
 
 S3method(grpc_cancel,grpc_call)
+S3method(grpc_cancel,grpc_request)
 S3method(grpc_cancel,grpc_stream)
 S3method(grpc_close,grpc_client)
 S3method(grpc_close,grpc_server)

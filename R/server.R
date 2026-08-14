@@ -16,6 +16,14 @@
 #' listener with \code{require_client_cert}, the verified
 #' \code{peer_identity} (the client certificate's identity values).
 #'
+#' Keepalive: \code{keepalive_ms}/\code{keepalive_timeout_ms} make the
+#' server ping quiet clients, mirroring \code{\link{grpc_client}}.
+#' \code{min_ping_interval_ms} is the tolerance for \emph{client} pings:
+#' gRPC's server default allows one unsolicited ping per 5 minutes and
+#' kills faster clients with a \code{too_many_pings} GOAWAY, so a
+#' deployment where clients keep 10-second heartbeats must lower this to
+#' at most the client ping interval.
+#'
 #' @param address Bind address, e.g. \code{"127.0.0.1:0"} for an
 #'   ephemeral TCP port (see \code{\link{grpc_server_port}}) or
 #'   \code{"unix:/path/to.sock"} for a unix-domain socket.
@@ -24,6 +32,12 @@
 #'   \code{key_file}; \code{require_client_cert = TRUE} for mTLS).
 #' @param accept_window Outstanding accept slots (burst capacity).
 #' @param max_active Bound on concurrently active calls.
+#' @param keepalive_ms Interval of transport inactivity after which the
+#'   server pings a client. \code{NULL} (default) disables keepalive.
+#' @param keepalive_timeout_ms Time to wait for a ping answer before the
+#'   connection is declared dead.
+#' @param min_ping_interval_ms Minimum interval between client pings the
+#'   server tolerates without counting a ping strike.
 #' @return An object of class \code{"grpc_server"}.
 #' @examples
 #' \dontrun{
@@ -36,7 +50,9 @@
 #' }
 #' @export
 grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
-                        accept_window = 8L, max_active = 256L) {
+                        accept_window = 8L, max_active = 256L,
+                        keepalive_ms = NULL, keepalive_timeout_ms = NULL,
+                        min_ping_interval_ms = NULL) {
     stopifnot(is.character(address), length(address) == 1L,
               is.numeric(accept_window), accept_window >= 1,
               is.numeric(max_active), max_active >= 1)
@@ -47,11 +63,20 @@ grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
     if (tls && (is.null(credentials$cert) || is.null(credentials$key))) {
         stop("a TLS server needs cert_file and key_file")
     }
+    ms <- function(x) {
+        if (is.null(x)) {
+            return(NULL)
+        }
+        stopifnot(is.numeric(x), length(x) == 1L, x > 0)
+        as.integer(x)
+    }
     xp <- .Call(grpc_r_server2_create, address, as.integer(accept_window),
                 as.integer(max_active), tls,
         if (tls) credentials$ca, if (tls) credentials$cert,
         if (tls) credentials$key,
-                tls && credentials$require_client_cert)
+                tls && credentials$require_client_cert,
+        ms(keepalive_ms), ms(keepalive_timeout_ms),
+        ms(min_ping_interval_ms))
     structure(list(ptr = xp, address = address), class = "grpc_server")
 }
 
@@ -154,6 +179,18 @@ grpc_send.grpc_request <- function(x, msg, ...) {
 #' one step. Returns (invisibly) \code{TRUE} if accepted, \code{FALSE}
 #' if the call is no longer answerable.
 #'
+#' With \code{drain = FALSE} the close is abortive: queued messages are
+#' discarded and the terminal status goes out first. This is for
+#' fencing — e.g. \code{ABORTED} on session replacement — where
+#' delivering queued-but-stale messages to the peer would be wrong and
+#' waiting behind them (potentially forever, if the peer has stopped
+#' reading) delays the fence. One already-posted message cannot be
+#' recalled, so the status can still wait for that single in-flight
+#' write; if the peer's flow-control window is exhausted even that may
+#' not complete, and \code{\link{grpc_cancel}} on the request is the
+#' hard escalation (the peer then sees \code{CANCELLED} rather than
+#' this status).
+#'
 #' @param request A \code{"grpc_request"} event from
 #'   \code{\link{grpc_poll}}.
 #' @param status Integer status code or name from
@@ -161,14 +198,21 @@ grpc_send.grpc_request <- function(x, msg, ...) {
 #' @param message Optional error detail string for non-\code{OK} status.
 #' @param metadata Optional named character vector sent as trailing
 #'   metadata.
+#' @param drain If \code{TRUE} (default), queued messages are delivered
+#'   before the status; if \code{FALSE}, they are discarded and the
+#'   status is prioritized.
 #' @examples
 #' \dontrun{
 #' for (m in msgs) grpc_send(ev, m)
 #' grpc_finish(ev)
+#' grpc_finish(ev, status = "ABORTED", message = "session replaced",
+#'             drain = FALSE)
 #' }
 #' @export
-grpc_finish <- function(request, status = 0L, message = "", metadata = NULL) {
-    stopifnot(inherits(request, "grpc_request"))
+grpc_finish <- function(request, status = 0L, message = "", metadata = NULL,
+                        drain = TRUE) {
+    stopifnot(inherits(request, "grpc_request"), is.logical(drain),
+              length(drain) == 1L, !is.na(drain))
     if (is.character(status)) {
         status <- grpc_status_codes[[match.arg(status,
                     names(grpc_status_codes))]]
@@ -182,7 +226,12 @@ grpc_finish <- function(request, status = 0L, message = "", metadata = NULL) {
                   all(nzchar(names(metadata))))
     }
     invisible(.Call(grpc_r_server2_finish, request$server$ptr, request$id,
-                    status, message, metadata))
+                    status, message, metadata, drain))
+}
+
+#' @export
+grpc_cancel.grpc_request <- function(x) {
+    invisible(.Call(grpc_r_server2_cancel, x$server$ptr, x$id))
 }
 
 #' @export
