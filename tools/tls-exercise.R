@@ -2,6 +2,8 @@
 # TLS tests shell out to openssl, and subprocesses segfault under a
 # preloaded libtsan, so this script takes pre-generated certificates
 # via the CERTDIR environment variable instead.
+lib <- Sys.getenv("GRPC_SANITIZE_LIB")
+stopifnot(nzchar(lib), identical(find.package("grpc"), file.path(lib, "grpc")))
 library(grpc)
 d <- Sys.getenv("CERTDIR")
 p <- function(f) file.path(d, f)

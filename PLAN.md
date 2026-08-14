@@ -310,6 +310,39 @@ Dirk contact remains gated on an explicit greenlight from Troy.
   synthetic memcpy-race and delete-race reports with package frames.
   Under that criterion the threading contract (all shared state under
   the mutex) has no TSan-visible violation.
+- **Correction (2026-08-14, later): the ASan/TSan passes above were
+  vacuous, and honest reruns found a real bug.** Three stacked silent
+  failures meant the "instrumented" suites had been running the plain
+  ambient build: littler's `-L` flag does not actually prepend the
+  library path (so the scratch builds never loaded); the sanitizer
+  flags were set via `CXXFLAGS`, which a `CXX_STD = CXX17` package
+  never reads (`CXX17FLAGS` is the one that counts); and
+  `R CMD INSTALL` reused stale objects from `src/`, so even corrected
+  flags never reached the compiler. Each failure produces output
+  identical to a clean pass. `tools/sanitize.sh` now proves its own
+  preconditions: libraries injected via `R_LIBS` with a
+  `find.package()` assertion baked into the suite, `__asan`/`__tsan`
+  symbol checks on the built `.so`, and `--preclean` everywhere.
+- **Honest instrumented results.** ASan: full suite clean. TSan
+  (instrumented, ~1500-1600 reports/run): the criterion is
+  performing-frame classification — a report is fatal iff BOTH racing
+  accesses execute in package source, the only class TSan can prove
+  through an uninstrumented libgrpc; one-sided construction/handoff
+  pairs (~15/run) are counted, printed, and documented as
+  boundary-unverifiable, with use-after-free covered by ASan and
+  valgrind instead. This is a conservative, high-signal gate, not
+  absolute proof: an ordering bug living entirely inside
+  uninstrumented libgrpc, or one TSan's timing never observes, stays
+  invisible. Non-data-race TSan warnings are fatal outright, and the
+  classifier is exercised against synthetic reports (including an
+  inlined-header performing frame above a package caller) at every
+  gate run. The criterion promptly caught a real race:
+  `grpc_r_call_start`/`grpc_r_stream_start` returned `cs->id` /
+  `s->id` after releasing the mutex, and a fast completion can delete
+  the state on the drain thread in that window (unary: any completed
+  call; stream: instant failure path) — a read of freed memory. Fixed
+  by capturing the id under the lock. Three consecutive full gate
+  runs clean after the fix.
 - **Reference node image** (`docker/`): two-stage build on
   `rocker/r2u:noble` — build stage compiles against `libgrpc++-dev`,
   runtime stage carries only `libgrpc++1.51t64` + `r-cran-rprotobuf`.
