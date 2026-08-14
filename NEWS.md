@@ -1,3 +1,16 @@
+# grpc 0.0.1.5
+
+- Streaming: `grpc_stream()` opens client-, server-, and bidirectional
+  streams (typed or raw); `grpc_send()` (bounded write queue with
+  `stream_writable` backpressure events), `grpc_writes_done()`,
+  automatic bounded inbound buffering with HTTP/2 backpressure, and a
+  terminal `stream_status` event. Server side: `grpc_read()` pulls
+  inbound stream messages, `grpc_send()` queues outbound ones,
+  `grpc_finish()` ends the stream after writes drain. `grpc_cancel()`
+  is now a generic over calls and streams; client events carry `kind`.
+- Live CRI streaming smoke: subscribe, hold, and cancel
+  `GetContainerEvents` against containerd.
+
 # grpc 0.0.1.4
 
 - Real-world proof: CRI client against live containerd (v2.2.3) over a
