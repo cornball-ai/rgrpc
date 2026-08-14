@@ -14,13 +14,13 @@ The package should make R a genuine gRPC client and server while preserving
 R's main-thread API rule and exposing completion-driven operation suitable
 for event loops such as Viento's.
 
-The prospective use case is southbound interop: containerd (CRI) and etcd
-speak gRPC and nothing else. Viento speaks to neither today; its OCI driver
-shells out to the podman/docker CLI on a polling cadence, and the only
-containerd reference in the repo is a "maybe later" note in a draft. This
-package buys the option of a containerd engine adapter driven by CRI events
-(`GetContainerEvents`) instead of CLI polling. The plan proves that boundary
-early precisely because it is prospective, not established.
+The founding use case was southbound interop — containerd (CRI) and etcd
+speak gRPC and nothing else — proven live in increment 5. The package's
+first consumer is the vientote rebuild (see the split, below): a
+gRPC-native orchestrator using this package for its control plane, its
+event-driven CRI container execution, and eventually its R executors.
+Beyond that: Triton, OTLP telemetry, gRPC-only cloud APIs, and the typed
+streaming channel between glinty's Flutter frontend and R backends.
 
 ## Platform commitment
 
@@ -176,8 +176,8 @@ verifies them cheaply instead of deciding them.
    - Explicit read/write readiness, half-close, cancellation, and bounded
      buffering.
    - Real-world target: CRI `GetContainerEvents` (server stream from
-     containerd), the call that would let a Viento containerd adapter be
-     event-driven instead of polling.
+     containerd), the call that makes vientote's container
+     execution event-driven instead of polling.
 
 7. **Operational surface**
    - TLS identity and trust configuration.
@@ -234,6 +234,30 @@ Environment: noble, `libgrpc++-dev` 1.51.1-4.1build5, r2u
 
 Dirk contact remains gated on an explicit greenlight from Troy.
 
+## CRI proof results (increment 5, done 2026-08-14)
+
+- Live against containerd v2.2.3 on this host (CRI plugin enabled,
+  socket ACL'd for the user): `Version`, `ListPodSandbox`, and
+  `ListImages` all answer over `unix:///run/containerd/containerd.sock`
+  and decode through the typed layer (`response_message`). Zero
+  sandboxes on a non-Kubernetes host is the expected result; the round
+  trip is the proof.
+- gRPC 1.51 (2022) client interoperating with containerd v2.2.3 (2026)
+  confirms the wire-stability claim behind pinning to the distro
+  library.
+- The CRI v1 schema (cri-api v0.33.2 plus its gogoproto and
+  descriptor.proto imports) is vendored as a self-contained import root
+  at `inst/proto/cri` and resolves via the increment-4 layer:
+  RuntimeService (30+ methods, `GetContainerEvents` server-streaming
+  flag intact) and ImageService.
+- Live tests gate on a readable socket (`GRPC_R_CRI_SOCKET`
+  overridable) and skip cleanly elsewhere;
+  `inst/examples/cri-list-pods.R` is the human-runnable version.
+- Host note: Docker's stock containerd ships `disabled_plugins =
+  ["cri"]`; enabling CRI plus a transient socket ACL was required
+  (tmpfs, so re-grant after reboot; durable access would use
+  containerd's `[grpc] gid` config instead).
+
 ## Verification
 
 - Interoperate with official C++, Go, and Python gRPC implementations
@@ -252,20 +276,89 @@ Dirk contact remains gated on an explicit greenlight from Troy.
 - Record p50/p99 latency, saturation throughput, memory, CPU, connection
   count, and R event-loop delay.
 
-## Viento experiment: only after the runtime is sound
+## The split: vientito and viento (decided 2026-08-14)
 
-- Define a transport-neutral Viento operation interface.
-- Implement a gRPC adapter without changing WAL/fold semantics.
-- Prototype registration and one bidirectional node-control stream.
-- Preserve WAL-before-ack, logical operation ids, boot/session fencing,
-  delivery confirmation, and reconciliation.
-- **Decision criterion, fixed now while it is cheap: capability, not
-  latency.** nanonext will very likely win R-to-R for Viento-shaped
-  messages, and that outcome is not evidence against gRPC. The case for
-  gRPC is the southbound boundary (a containerd engine adapter), where
-  CRI speaks nothing else. The benchmark's job is to establish that gRPC
-  overhead is *acceptable* there, not to adjudicate a transport
-  migration.
+The control-plane candidacy is resolved by splitting instead of
+migrating. Every hedge the one-codebase path required — a
+transport-neutral interface with a conformance suite for two adapters,
+capability-flagged engine contracts, events-with-polling fallbacks, an
+Imports/Suggests dance — was complexity spent making one codebase span
+two architectures. The split deletes all of it. Those hedges are
+rejected; do not reintroduce them.
+
+**vientito** (today's viento, renamed when grpc is ready):
+
+- Finishes phase 1 exactly as architected: nanonext control plane,
+  strict-JSON wire, CLI engine adapters (podman/docker), mirai and
+  systemd execution drivers.
+- Feature-frozen after phase 1. It runs the fleet while the rebuild
+  happens. It is allowed to rot; it gets updated only if someone turns
+  out to find it useful.
+- Its engine-adapter contract stays as-is; the fidelity question is
+  moot for CLI adapters, which poll because that is what CLIs do.
+
+**vientote** (the gRPC-native rebuild; working name, decided
+2026-08-14 — the augmentative pairs with vientito and decouples the
+rebuild's start from the rename; whether it claims the bare `viento`
+name at 1.0 stays open and blocks nothing):
+
+- gRPC control plane from line one: bidirectional node-control streams,
+  mTLS peer identity, deadlines as a primitive, protobuf `.proto`
+  contracts as the wire truth.
+- CRI-native container execution: containerd consumed directly and
+  event-driven (`GetContainerEvents`), with no
+  lowest-common-denominator engine contract in the way.
+- systemd native driver carried over; mirai carried over initially as
+  the R-execution driver, with R-executors-as-grpc-services (this
+  package's server side, supervised like any native service) as the
+  later increment that retires it.
+- **Crown jewels are copied, not shared.** WAL, fold, events, states,
+  fencing, canonical identity move over wholesale and diverge freely.
+  No shared core package; vientito's copies stand as-is. Semantics
+  preserved: WAL-before-ack, logical operation ids, boot/session
+  fencing, delivery confirmation, reconciliation.
+- Design input before the control plane is drafted: mine the incumbents
+  with the bonsaisitter + treesitter.go stack, protos first,
+  implementations only for specific questions. The map: **swarmkit**
+  (Apache-2.0) for the manager/worker gRPC wire contract — its
+  dispatcher.proto session/heartbeat/assignment-stream design is the
+  closest prior art, and Nomad offers no equivalent because its
+  server/client RPC is net/rpc + msgpack, not gRPC; **Nomad 1.6.x**
+  (the pre-BUSL MPL-2.0 snapshot, fully minable) for scheduler
+  semantics — the evaluation/allocation/plan pipeline, client
+  heartbeats and drain — plus its go-plugin gRPC boundaries (task
+  driver, device plugins); **k8s** only for kubelet node-lifecycle
+  patterns and api-machinery conventions, plus the already-vendored
+  cri-api. Post-2023 Nomad is BUSL and off limits.
+- Gets its own plan document in its own repo when the rebuild starts;
+  this section is the charter, not the plan.
+
+Sequencing:
+
+1. vientito finishes phase 1 (g5 gpu_service objective) uninterrupted;
+   its live momentum is not stalled for the rebuild.
+2. grpc completes increments 6-8 (streaming, TLS/operational surface,
+   packaging) — a control plane needs streams and mTLS before it can
+   carry one.
+3. The rename (current repo -> vientito, one deliberate pass while
+   private: repo, unit names, config docs) happens when grpc is ready,
+   freeing the name.
+4. The vientote rebuild starts (its repo can exist any time; the
+   working name does not wait on the rename): crown-jewel copy, then
+   control plane, then CRI execution, then executors.
+
+Rationale on record: gRPC is the industry-standard control-plane
+substrate for this class of system; vientote is instantly
+legible to that world and open to non-R agents via generated stubs.
+Dogfooding the rebuild is how grpc earns maturity, and grpc is also the
+planned typed/streaming channel between glinty's Flutter frontend and R
+backends, so it is shared infrastructure, not a viento-only bet.
+Pre-production is when this is cheap. Strategically, cornball.ai builds
+alternatives to the Posit-adjacent stack (nanonext/mirai); the rebuild
+moves the control path to first-party transport, and the executor
+increment finishes the job. Latency was never a criterion: nanonext
+would very likely win R-to-R, and that is not evidence against any of
+this.
 
 ## Encoding decision: no protobuf retrofit inside Viento
 
@@ -289,6 +382,11 @@ Revisit only if a non-R agent actually materializes, and even then the
 first question is a `.proto` contract for new surfaces, not re-encoding
 existing ones.
 
+This declines re-encoding the existing nanonext channel in place, and
+the split (below) makes it permanent: vientito keeps JSON-on-nanonext
+until retirement, and vientote is protobuf/gRPC by design —
+new surfaces with `.proto` contracts, not a retrofit.
+
 ## Non-goals
 
 - Replacing RProtoBuf
@@ -296,14 +394,17 @@ existing ones.
 - Static vendoring of gRPC/abseil, or any Rust/tonic implementation
 - CRAN submission; Windows and macOS support (revisit only on real
   outside demand)
-- Retrofitting protobuf onto Viento's internal nanonext control plane
-  (see encoding decision above)
+- Retrofitting protobuf or gRPC onto vientito in place (the split
+  supersedes migration; see encoding decision and the split section)
+- Dual-transport machinery in either orchestrator: no transport-neutral
+  adapter interface, no capability-flagged engine contracts
 - Putting Viento's WAL or domain policy into the transport package
 - Claiming exactly-once RPC delivery
 - Guaranteeing fork safety after a channel is open (the failure mode is
   documented instead)
 - Beating nanonext on R-to-R latency
-- Pivoting Viento before the package and benchmark evidence exist
+- Starting the vientote rebuild before grpc has streaming and TLS
+  (increments 6-7), or stalling vientito's phase 1 for it
 
 ## Open decisions
 
@@ -319,6 +420,6 @@ commitment), distribution channel (r-universe/drat plus apt/Docker),
 event-loop and promises/mirai integration (increment 2), Rust/tonic
 (dropped), protobuf-on-nanonext (declined; see encoding decision),
 license (Apache-2.0, matching gRPC; RProtoBuf is GPL (>= 2) per CRAN
-0.4.27, accepted as plumbing-level exposure), nanonext's role (it stays:
-Viento's control plane, mirai's substrate, and the TLS machinery all run
-on it; gRPC displaces southbound CLI shell-outs, not nanonext).
+0.4.27, accepted as plumbing-level exposure), the vientito/vientote split
+(vientito finishes on nanonext and freezes; vientote is the gRPC-native
+rebuild, bare `viento` name parked — see the split section).

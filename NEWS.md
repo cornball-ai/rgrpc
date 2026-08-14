@@ -1,3 +1,12 @@
+# grpc 0.0.1.4
+
+- Real-world proof: CRI client against live containerd (v2.2.3) over a
+  unix-domain socket — `Version`, `ListPodSandbox`, `ListImages`, all
+  through the typed layer. CRI v1 schema vendored as a self-contained
+  import root under `inst/proto/cri`; live tests gate on socket access
+  (`GRPC_R_CRI_SOCKET`); `inst/examples/cri-list-pods.R` for humans.
+- PLAN.md: Viento experiment reframed as control-plane candidacy.
+
 # grpc 0.0.1.3
 
 - RProtoBuf integration: `grpc_service()` / `grpc_method()` resolve
