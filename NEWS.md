@@ -1,3 +1,13 @@
+# grpc 0.0.1.3
+
+- RProtoBuf integration: `grpc_service()` / `grpc_method()` resolve
+  services and methods from the runtime descriptor pool (via the
+  FileDescriptorProto, sidestepping rprotobuf#116); `grpc_call()`
+  accepts a `grpc_method` plus a `Message`, validates the request type,
+  and auto-decodes OK responses as `response_message`; `grpc_reply()`
+  accepts a `Message`; `grpc_decode()` decodes payload bytes. RProtoBuf
+  remains a Suggests.
+
 # grpc 0.0.1.2
 
 - Generic asynchronous server on `AsyncGenericService`: `grpc_server()`

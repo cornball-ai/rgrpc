@@ -63,8 +63,9 @@ grpc_server_port <- function(server) {
 #'
 #' @param request A \code{"grpc_request"} event from
 #'   \code{\link{grpc_poll}}.
-#' @param response Raw vector with the serialized response message.
-#'   Required when \code{status} is \code{OK}; ignored otherwise.
+#' @param response Raw vector with the serialized response message, or an
+#'   \code{RProtoBuf} \code{Message} to serialize. Required when
+#'   \code{status} is \code{OK}; ignored otherwise.
 #' @param status Integer status code or name from
 #'   \code{\link{grpc_status_codes}}, e.g. \code{"NOT_FOUND"}.
 #' @param message Optional error detail string for non-\code{OK} status.
@@ -79,6 +80,9 @@ grpc_server_port <- function(server) {
 grpc_reply <- function(request, response = NULL, status = 0L, message = "",
                        metadata = NULL) {
     stopifnot(inherits(request, "grpc_request"))
+    if (inherits(response, "Message")) {
+        response <- RProtoBuf::serialize(response, NULL)
+    }
     if (is.character(status)) {
         status <- grpc_status_codes[[match.arg(status,
                     names(grpc_status_codes))]]

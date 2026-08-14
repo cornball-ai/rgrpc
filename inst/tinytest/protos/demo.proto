@@ -1,0 +1,13 @@
+syntax = "proto3";
+package demo;
+
+message Ping { string msg = 1; }
+message Pong {
+  string msg = 1;
+  uint32 n = 2;
+}
+
+service Echo {
+  rpc Say (Ping) returns (Pong);
+  rpc Watch (Ping) returns (stream Pong);
+}

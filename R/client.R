@@ -34,7 +34,9 @@ grpc_status_codes <- c(OK = 0L, CANCELLED = 1L, UNKNOWN = 2L,
 grpc_client <- function(target) {
     stopifnot(is.character(target), length(target) == 1L)
     xp <- .Call(grpc_r_client_create, target)
-    structure(list(ptr = xp, target = target), class = "grpc_client")
+    structure(list(ptr = xp, target = target,
+                   calls = new.env(parent = emptyenv())),
+              class = "grpc_client")
 }
 
 #' Start a unary call
@@ -43,10 +45,20 @@ grpc_client <- function(target) {
 #' serialized protocol buffer, e.g. from \code{RProtoBuf}'s
 #' \code{serialize()}). The call completes via \code{\link{grpc_poll}}.
 #'
+#' Typed calls: when \code{method} is a \code{"grpc_method"} (from
+#' \code{\link{grpc_method}}) and \code{request} is an \code{RProtoBuf}
+#' \code{Message}, the request type is validated against the method's
+#' \code{input_type} before sending, and the completion delivered by
+#' \code{\link{grpc_poll}} carries the decoded response as
+#' \code{response_message}. Streaming methods are refused until the
+#' streaming increment.
+#'
 #' @param client A \code{"grpc_client"} object.
 #' @param method Full method path, e.g.
-#'   \code{"/runtime.v1.RuntimeService/Version"}.
-#' @param request Raw vector with the serialized request message.
+#'   \code{"/runtime.v1.RuntimeService/Version"}, or a
+#'   \code{"grpc_method"} object for a typed call.
+#' @param request Raw vector with the serialized request message, or an
+#'   \code{RProtoBuf} \code{Message} to serialize.
 #' @param deadline_ms Optional deadline in milliseconds; on expiry the
 #'   call completes with status \code{DEADLINE_EXCEEDED}.
 #' @param metadata Optional named character vector of request metadata.
@@ -61,8 +73,27 @@ grpc_client <- function(target) {
 #' @export
 grpc_call <- function(client, method, request, deadline_ms = NULL,
                       metadata = NULL, wait_for_ready = FALSE) {
-    stopifnot(inherits(client, "grpc_client"), is.character(method),
-              length(method) == 1L, is.raw(request))
+    stopifnot(inherits(client, "grpc_client"))
+    output_type <- NULL
+    if (inherits(method, "grpc_method")) {
+        if (method$client_streaming || method$server_streaming) {
+            stop("method '", method$path,
+                 "' is streaming; streaming arrives in a later increment")
+        }
+        if (inherits(request, "Message")) {
+            got <- RProtoBuf::name(RProtoBuf::descriptor(request), TRUE)
+            if (!identical(got, method$input_type)) {
+                stop("request is '", got, "' but '", method$path,
+                     "' expects '", method$input_type, "'")
+            }
+        }
+        output_type <- method$output_type
+        method <- method$path
+    }
+    if (inherits(request, "Message")) {
+        request <- RProtoBuf::serialize(request, NULL)
+    }
+    stopifnot(is.character(method), length(method) == 1L, is.raw(request))
     if (!is.null(deadline_ms)) {
         stopifnot(is.numeric(deadline_ms), length(deadline_ms) == 1L,
                   deadline_ms > 0)
@@ -74,6 +105,9 @@ grpc_call <- function(client, method, request, deadline_ms = NULL,
     }
     id <- .Call(grpc_r_call_start, client$ptr, method, request, deadline_ms,
                 metadata, isTRUE(wait_for_ready))
+    if (!is.null(output_type)) {
+        assign(as.character(id), output_type, envir = client$calls)
+    }
     structure(list(client = client, id = id, method = method),
               class = "grpc_call")
 }
@@ -100,6 +134,14 @@ grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
     lapply(events, function(ev) {
         ev$status_name <- names(grpc_status_codes)[match(ev$status,
                 grpc_status_codes)]
+        key <- as.character(ev$id)
+        type <- get0(key, envir = x$calls, inherits = FALSE)
+        if (!is.null(type)) {
+            rm(list = key, envir = x$calls)
+            if (identical(ev$status_name, "OK") && !is.null(ev$response)) {
+                ev$response_message <- grpc_decode(ev$response, type)
+            }
+        }
         ev
     })
 }
