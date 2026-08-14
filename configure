@@ -15,9 +15,10 @@ fi
 for mod in "grpc++" "protobuf"; do
     if ! "${PKG_CONFIG}" --exists "${mod}"; then
         echo "ERROR: pkg-config cannot find '${mod}'." >&2
-        echo "  Ubuntu/Debian: sudo apt install libgrpc++-dev" >&2
+        echo "  Ubuntu/Debian: sudo apt install libgrpc++-dev libprotobuf-dev" >&2
         echo "  (libgrpc++-dev, not libgrpc-dev: the C-only package leaves" >&2
-        echo "   the C++ runtime and grpc++.pc missing.)" >&2
+        echo "   the C++ runtime and grpc++.pc missing. libgrpc++-dev does" >&2
+        echo "   not pull libprotobuf-dev under --no-install-recommends.)" >&2
         exit 1
     fi
 done

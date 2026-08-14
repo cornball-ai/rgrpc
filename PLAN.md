@@ -51,8 +51,8 @@ Windows binaries, neither of which is a goal).
   packages. `protobuf-compiler-grpc` is never needed: the generic-API
   design does no C++ stub codegen, so the one genuinely broken piece of
   noble's gRPC packaging is a piece this package never touches.
-- **Distribution: r-universe/drat plus apt-based Docker images.** CRAN is
-  not a target.
+- **Distribution: drat plus apt-based Docker images.** CRAN is not a
+  target. No r-universe.
 
 ## Ownership boundary
 
@@ -187,7 +187,8 @@ verifies them cheaply instead of deciding them.
    - Structured diagnostics, channel state, and tracing hooks.
 
 8. **Packaging and deployment**
-   - r-universe/drat builds against distro gRPC.
+   - drat builds against distro gRPC. (Deferred 2026-08-14: no drat repo
+     yet, Troy's call.)
    - Node container images: `libgrpc++1.51t64` in the base image, and the
      image base must match the build host's, since the package binary is
      tied to the distro ABI. One apt line in the Dockerfile, but the
@@ -257,6 +258,43 @@ Dirk contact remains gated on an explicit greenlight from Troy.
   ["cri"]`; enabling CRI plus a transient socket ACL was required
   (tmpfs, so re-grant after reboot; durable access would use
   containerd's `[grpc] gid` config instead).
+
+## Hardening results (increment 8, done 2026-08-14)
+
+- **Forced-error cleanup tests caught a real shutdown race.** Closing a
+  client with a stream write in flight aborted the process
+  deterministically (`grpc_cq_begin_op` assertion): `TryCancel` during
+  close completes the in-flight op on the drain thread, whose handler
+  then posted a follow-on op (Finish/next write/read) after the main
+  thread had already shut the CQ down. Fixed with a `shutting` flag,
+  set under the mutex before `cq.Shutdown()`, that suppresses every
+  drain-thread op post; already-started ops drain legally through
+  `Next` after CQ shutdown. The same latent race existed server-side
+  (`pump_locked`, the accept handler's read post) and is closed the
+  same way. `test_cleanup.R` (17 tests) pins the whole family:
+  post-close operations error cleanly, finalizers with work in flight,
+  create/destroy churn.
+- **Valgrind memcheck**: full suite passes, 0 memory access errors, 0
+  definite/indirect leaks. (Possibly-lost records only, from gRPC/absl
+  thread-locals and R itself — interior-pointer noise.)
+- **ASan**: full suite passes clean.
+- **TSan** (`setarch -R`; this kernel's ASLR breaks TSan's shadow
+  mapping): full suite plus a dedicated TLS/mTLS exercise, since
+  subprocesses segfault under a preloaded libtsan and the TLS tests
+  shell out to openssl — certs pre-generated outside instead. Every
+  report (253 + 27) traces to the uninstrumented system libgrpc
+  boundary: synchronization edges inside `libgrpc.so` are invisible to
+  TSan, so batch handoffs to the completion thread look unsynchronized.
+  No report has both racing accesses in package code; the threading
+  contract (all shared state under the mutex) has no TSan-visible
+  violation.
+- **Reference node image** (`docker/`): two-stage build on
+  `rocker/r2u:noble` — build stage compiles against `libgrpc++-dev`,
+  runtime stage carries only `libgrpc++1.51t64` + `r-cran-rprotobuf`.
+  Built and smoke-tested: unary round trip inside the container. The
+  build stage exposed that `libgrpc++-dev` does not pull
+  `libprotobuf-dev` under `--no-install-recommends`; the configure hint
+  and `SystemRequirements` now name both packages.
 
 ## Verification
 
@@ -416,7 +454,7 @@ new surfaces with `.proto` contracts, not a retrofit.
 - Strict handling of unknown fields versus normal protobuf evolution.
 
 Resolved: static versus system linking (system only; see platform
-commitment), distribution channel (r-universe/drat plus apt/Docker),
+commitment), distribution channel (drat plus apt/Docker; no r-universe),
 event-loop and promises/mirai integration (increment 2), Rust/tonic
 (dropped), protobuf-on-nanonext (declined; see encoding decision),
 license (Apache-2.0, matching gRPC; RProtoBuf is GPL (>= 2) per CRAN

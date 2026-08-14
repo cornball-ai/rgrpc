@@ -22,7 +22,8 @@ Depends: R (>= 4.4.0)
 Imports: methods
 Suggests: RProtoBuf, tinytest
 OS_type: unix
-SystemRequirements: gRPC C++ library with development headers
+SystemRequirements: gRPC C++ library with development headers, protobuf
+    development headers (Ubuntu/Debian: libgrpc++-dev, libprotobuf-dev)
     (Ubuntu/Debian: 'libgrpc++-dev'; found via 'pkg-config grpc++ protobuf').
 Encoding: UTF-8
 Config/roxygen2/version: 8.0.0
