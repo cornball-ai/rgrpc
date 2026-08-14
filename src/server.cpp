@@ -313,7 +313,9 @@ rserver *get_server(SEXP xp) {
 extern "C" SEXP grpc_r_server2_create(SEXP address, SEXP accept_window,
                                       SEXP max_active, SEXP tls, SEXP ca,
                                       SEXP cert, SEXP key,
-                                      SEXP require_client) {
+                                      SEXP require_client, SEXP keepalive_ms,
+                                      SEXP keepalive_timeout_ms,
+                                      SEXP min_ping_interval_ms) {
     const char *addr = Rf_translateCharUTF8(STRING_ELT(address, 0));
     int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (fd < 0) Rf_error("eventfd creation failed");
@@ -342,6 +344,28 @@ extern "C" SEXP grpc_r_server2_create(SEXP address, SEXP accept_window,
         creds = grpc::InsecureServerCredentials();
     }
     grpc::ServerBuilder builder;
+    if (keepalive_ms != R_NilValue) {
+        builder.AddChannelArgument(GRPC_ARG_KEEPALIVE_TIME_MS,
+                                   Rf_asInteger(keepalive_ms));
+        // Same ping-policing overrides as the client: keepalive on a
+        // quiet connection needs pings without data and without calls.
+        builder.AddChannelArgument(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
+        builder.AddChannelArgument(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS,
+                                   1);
+    }
+    if (keepalive_timeout_ms != R_NilValue) {
+        builder.AddChannelArgument(GRPC_ARG_KEEPALIVE_TIMEOUT_MS,
+                                   Rf_asInteger(keepalive_timeout_ms));
+    }
+    if (min_ping_interval_ms != R_NilValue) {
+        // Tolerance for the peer's pings. The gRPC default is 5 minutes
+        // with 2 ping strikes allowed, so a client pinging every few
+        // seconds without payload data is killed with a too_many_pings
+        // GOAWAY unless this is lowered to at most its ping interval.
+        builder.AddChannelArgument(
+            GRPC_ARG_HTTP2_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS,
+            Rf_asInteger(min_ping_interval_ms));
+    }
     builder.AddListeningPort(addr, creds, &s->port);
     builder.RegisterAsyncGenericService(&s->generic);
     s->cq = builder.AddCompletionQueue();
@@ -443,6 +467,22 @@ extern "C" SEXP grpc_r_server2_read(SEXP xp, SEXP id) {
     return Rf_ScalarLogical(TRUE);
 }
 
+// args: server, id. Hard-kill one call (TryCancel). The peer sees
+// CANCELLED, not the application status — this is the escalation when
+// even an abortive finish cannot get its status past a stalled peer's
+// flow-control window. TRUE if the call was live.
+extern "C" SEXP grpc_r_server2_cancel(SEXP xp, SEXP id) {
+    rserver *s = get_server(xp);
+    const uint64_t want = (uint64_t) Rf_asReal(id);
+    std::lock_guard<std::mutex> lock(s->mu);
+    auto it = s->active.find(want);
+    if (it == s->active.end()) return Rf_ScalarLogical(FALSE);
+    sv_call *c = it->second;
+    if (c->dead) return Rf_ScalarLogical(FALSE);
+    c->ctx.TryCancel();
+    return Rf_ScalarLogical(TRUE);
+}
+
 // args: server, id, bytes (raw). TRUE if queued; FALSE if the queue is
 // full or the call cannot accept writes.
 extern "C" SEXP grpc_r_server2_send(SEXP xp, SEXP id, SEXP bytes) {
@@ -460,10 +500,13 @@ extern "C" SEXP grpc_r_server2_send(SEXP xp, SEXP id, SEXP bytes) {
     return Rf_ScalarLogical(TRUE);
 }
 
-// args: server, id, status (int), message (chr), metadata. Ends the
-// stream after queued writes drain. TRUE if accepted.
+// args: server, id, status (int), message (chr), metadata, drain (lgl).
+// Ends the stream: with drain, after queued writes; without, queued
+// writes are discarded so the terminal status goes out first. TRUE if
+// accepted.
 extern "C" SEXP grpc_r_server2_finish(SEXP xp, SEXP id, SEXP status,
-                                      SEXP message, SEXP metadata) {
+                                      SEXP message, SEXP metadata,
+                                      SEXP drain) {
     rserver *s = get_server(xp);
     const uint64_t want = (uint64_t) Rf_asReal(id);
     const int code = Rf_asInteger(status);
@@ -476,6 +519,20 @@ extern "C" SEXP grpc_r_server2_finish(SEXP xp, SEXP id, SEXP status,
     sv_call *c = it->second;
     if (!c->delivered || c->replied || c->dead) return Rf_ScalarLogical(FALSE);
     c->replied = true;
+    if (Rf_asLogical(drain) != TRUE) {
+        // Abortive close (fencing): discard queued writes so the
+        // terminal status is not delayed behind them. A write already
+        // posted to the CQ cannot be recalled, so the front element
+        // stays until its completion tag; the added delay is bounded by
+        // that one message (or by the peer's flow-control window if it
+        // has stopped reading — escalate with cancel for a hard bound).
+        if (c->write_inflight) {
+            c->write_queue.erase(c->write_queue.begin() + 1,
+                                 c->write_queue.end());
+        } else {
+            c->write_queue.clear();
+        }
+    }
     if (metadata != R_NilValue) {
         SEXP names = Rf_getAttrib(metadata, R_NamesSymbol);
         for (R_xlen_t i = 0; i < Rf_xlength(metadata); ++i) {

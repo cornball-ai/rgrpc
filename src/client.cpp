@@ -367,7 +367,9 @@ std::string chr_or_empty(SEXP x) {
 // args: target, tls (lgl), ca/cert/key PEM strings (chr or NULL),
 //       target_name_override (chr or NULL)
 extern "C" SEXP grpc_r_client_create(SEXP target, SEXP tls, SEXP ca,
-                                     SEXP cert, SEXP key, SEXP override_) {
+                                     SEXP cert, SEXP key, SEXP override_,
+                                     SEXP keepalive_ms,
+                                     SEXP keepalive_timeout_ms) {
     const char *tgt = Rf_translateCharUTF8(STRING_ELT(target, 0));
     int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (fd < 0) Rf_error("eventfd creation failed");
@@ -386,6 +388,18 @@ extern "C" SEXP grpc_r_client_create(SEXP target, SEXP tls, SEXP ca,
     grpc::ChannelArguments args;
     std::string ov = chr_or_empty(override_);
     if (!ov.empty()) args.SetSslTargetNameOverride(ov);
+    if (keepalive_ms != R_NilValue) {
+        args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, Rf_asInteger(keepalive_ms));
+        // Without these two, HTTP/2 ping policing silences keepalive on
+        // a quiet connection: pings stop after 2 without payload data,
+        // and none are sent at all with no active call.
+        args.SetInt(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
+        args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
+    }
+    if (keepalive_timeout_ms != R_NilValue) {
+        args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS,
+                    Rf_asInteger(keepalive_timeout_ms));
+    }
     c->channel = grpc::CreateCustomChannel(tgt, creds, args);
     c->stub.reset(new grpc::GenericStub(c->channel));
     c->completer = std::thread([c]() { c->run(); });
