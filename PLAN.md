@@ -317,13 +317,19 @@ name at 1.0 stays open and blocks nothing):
   No shared core package; vientito's copies stand as-is. Semantics
   preserved: WAL-before-ack, logical operation ids, boot/session
   fencing, delivery confirmation, reconciliation.
-- Design input before the control plane is drafted: mine the
-  permissively licensed incumbents for contract shapes, protos first,
-  implementations only for specific questions. swarmkit (Apache-2.0,
-  Nomad-sized, real gRPC manager/worker control plane — its
+- Design input before the control plane is drafted: mine the incumbents
+  with the bonsaisitter + treesitter.go stack, protos first,
+  implementations only for specific questions. The map: **swarmkit**
+  (Apache-2.0) for the manager/worker gRPC wire contract — its
   dispatcher.proto session/heartbeat/assignment-stream design is the
-  closest prior art) plus kubelet node-lifecycle patterns and
-  api-machinery conventions from k8s. Nomad itself is BUSL and out.
+  closest prior art, and Nomad offers no equivalent because its
+  server/client RPC is net/rpc + msgpack, not gRPC; **Nomad 1.6.x**
+  (the pre-BUSL MPL-2.0 snapshot, fully minable) for scheduler
+  semantics — the evaluation/allocation/plan pipeline, client
+  heartbeats and drain — plus its go-plugin gRPC boundaries (task
+  driver, device plugins); **k8s** only for kubelet node-lifecycle
+  patterns and api-machinery conventions, plus the already-vendored
+  cri-api. Post-2023 Nomad is BUSL and off limits.
 - Gets its own plan document in its own repo when the rebuild starts;
   this section is the charter, not the plan.
 
