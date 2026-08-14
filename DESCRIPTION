@@ -19,6 +19,7 @@ License: Apache License (>= 2)
 URL: https://github.com/cornball-ai/grpc
 BugReports: https://github.com/cornball-ai/grpc/issues
 Depends: R (>= 4.4.0)
+Imports: methods
 Suggests: RProtoBuf, tinytest
 OS_type: unix
 SystemRequirements: gRPC C++ library with development headers
