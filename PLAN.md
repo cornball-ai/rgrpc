@@ -252,20 +252,40 @@ Dirk contact remains gated on an explicit greenlight from Troy.
 - Record p50/p99 latency, saturation throughput, memory, CPU, connection
   count, and R event-loop delay.
 
-## Viento experiment: only after the runtime is sound
+## Viento experiment: control-plane candidacy, after the runtime is sound
+
+gRPC is a candidate for Viento's node-control plane, not only the
+southbound boundary. Rationale, updated 2026-08-14:
+
+- gRPC is the industry-standard control-plane substrate for this class
+  of system (kubelet/CRI, etcd, CSI); speaking it makes Viento legible
+  to that world and lets non-R agents join the fleet with generated
+  stubs.
+- Viento is pre-production and private: a control-plane swap is at its
+  cheapest now, and dogfooding is how the grpc package earns maturity.
+- Strategic: nanonext/mirai are Posit-adjacent; cornball.ai builds
+  alternatives to that stack. Moving the control path to first-party
+  transport reduces that reliance. (mirai remains the execution driver
+  either way; retiring nanonext as a transitive dependency is a
+  separate decision about driver mainlining, out of scope here.)
+
+nanonext remains the working control plane until the experiment
+concludes; it is the scaffold, not necessarily the destination.
+
+Steps:
 
 - Define a transport-neutral Viento operation interface.
 - Implement a gRPC adapter without changing WAL/fold semantics.
 - Prototype registration and one bidirectional node-control stream.
 - Preserve WAL-before-ack, logical operation ids, boot/session fencing,
   delivery confirmation, and reconciliation.
-- **Decision criterion, fixed now while it is cheap: capability, not
-  latency.** nanonext will very likely win R-to-R for Viento-shaped
-  messages, and that outcome is not evidence against gRPC. The case for
-  gRPC is the southbound boundary (a containerd engine adapter), where
-  CRI speaks nothing else. The benchmark's job is to establish that gRPC
-  overhead is *acceptable* there, not to adjudicate a transport
-  migration.
+- **Decision criteria, fixed now while it is cheap.** Southbound
+  (containerd adapter): capability — CRI speaks nothing else; the
+  benchmark only establishes that overhead is *acceptable*. Control
+  plane: standardness, cross-language legibility, and dogfooding value,
+  judged with both adapters working. Latency is a criterion for
+  neither: nanonext will very likely win R-to-R for Viento-shaped
+  messages, and that outcome is not evidence against migrating.
 
 ## Encoding decision: no protobuf retrofit inside Viento
 
@@ -288,6 +308,12 @@ without its schema is field numbers, not a record.
 Revisit only if a non-R agent actually materializes, and even then the
 first question is a `.proto` contract for new surfaces, not re-encoding
 existing ones.
+
+This declines re-encoding the existing nanonext channel in place. It
+does not conflict with the control-plane candidacy above: if the Viento
+experiment leads to a gRPC control plane, the `.proto` contracts arrive
+with the new adapter as new surfaces, which is exactly the sanctioned
+path.
 
 ## Non-goals
 
@@ -319,6 +345,7 @@ commitment), distribution channel (r-universe/drat plus apt/Docker),
 event-loop and promises/mirai integration (increment 2), Rust/tonic
 (dropped), protobuf-on-nanonext (declined; see encoding decision),
 license (Apache-2.0, matching gRPC; RProtoBuf is GPL (>= 2) per CRAN
-0.4.27, accepted as plumbing-level exposure), nanonext's role (it stays:
-Viento's control plane, mirai's substrate, and the TLS machinery all run
-on it; gRPC displaces southbound CLI shell-outs, not nanonext).
+0.4.27, accepted as plumbing-level exposure), nanonext's role (today's
+working control plane and mirai's substrate; gRPC is an explicit
+control-plane candidate pending the Viento experiment — see that
+section).
