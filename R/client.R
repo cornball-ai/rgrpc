@@ -39,10 +39,9 @@ grpc_client <- function(target, credentials = NULL) {
     if (!is.null(credentials) && !tls) {
         stop("credentials must be a grpc_tls object")
     }
-    xp <- .Call(grpc_r_client_create, target, tls,
-                if (tls) credentials$ca, if (tls) credentials$cert,
-                if (tls) credentials$key,
-                if (tls) credentials$target_name_override)
+    xp <- .Call(grpc_r_client_create, target, tls, if (tls) credentials$ca,
+        if (tls) credentials$cert, if (tls) credentials$key,
+        if (tls) credentials$target_name_override)
     structure(list(ptr = xp, target = target,
                    calls = new.env(parent = emptyenv())),
               class = "grpc_client")

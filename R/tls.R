@@ -28,8 +28,7 @@
 #' }
 #' @export
 grpc_tls <- function(ca_file = NULL, cert_file = NULL, key_file = NULL,
-                     require_client_cert = FALSE,
-                     target_name_override = NULL) {
+                     require_client_cert = FALSE, target_name_override = NULL) {
     read_pem <- function(path) {
         if (is.null(path)) {
             return(NULL)
@@ -70,7 +69,6 @@ grpc_tls <- function(ca_file = NULL, cert_file = NULL, key_file = NULL,
 #' @export
 grpc_state <- function(client) {
     stopifnot(inherits(client, "grpc_client"))
-    states <- c("IDLE", "CONNECTING", "READY", "TRANSIENT_FAILURE",
-                "SHUTDOWN")
+    states <- c("IDLE", "CONNECTING", "READY", "TRANSIENT_FAILURE", "SHUTDOWN")
     states[.Call(grpc_r_client_state, client$ptr) + 1L]
 }

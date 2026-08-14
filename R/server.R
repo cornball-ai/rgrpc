@@ -49,8 +49,8 @@ grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
     }
     xp <- .Call(grpc_r_server2_create, address, as.integer(accept_window),
                 as.integer(max_active), tls,
-                if (tls) credentials$ca, if (tls) credentials$cert,
-                if (tls) credentials$key,
+        if (tls) credentials$ca, if (tls) credentials$cert,
+        if (tls) credentials$key,
                 tls && credentials$require_client_cert)
     structure(list(ptr = xp, address = address), class = "grpc_server")
 }
