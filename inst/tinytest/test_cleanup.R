@@ -71,24 +71,29 @@ if (at_home()) {
   grpc_close(cl)
 
   ## ---- server close with queued writes still pumping ----
-  ## Reaches the shutting guard in the server's write pump: completions
-  ## of already-posted writes drain after cq shutdown and must not post
-  ## follow-on ops. Looped because the window is a race.
-  for (i in 1:5) {
+  ## Reaches the shutting guard in the server's write pump: write-ok
+  ## completions queued at the instant of cq shutdown drain afterwards
+  ## and must not post follow-on ops. The window is a race; 32 streams
+  ## with large payloads keep enough writes in flight that removing the
+  ## guard aborts the process (verified by mutation, 5/5).
+  payload <- as.raw(rep(1L, 131072))
+  for (i in 1:20) {
     srv <- grpc_server()
     cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
-    s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 10000)
-    grpc_send(s, raw(1))
-    req <- NULL
+    streams <- lapply(1:32, function(j) {
+      s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 10000)
+      grpc_send(s, raw(1))
+      s
+    })
+    reqs <- list()
     t0 <- Sys.time()
-    while (is.null(req) &&
+    while (length(reqs) < 32 &&
            as.numeric(Sys.time() - t0, units = "secs") < 5) {
       for (ev in grpc_poll(srv, timeout_ms = 200L)) {
-        if (ev$type == "request") req <- ev
+        if (ev$type == "request") reqs[[length(reqs) + 1L]] <- ev
       }
     }
-    for (j in 1:8) grpc_send(req, as.raw(j))
-    grpc_finish(req)
+    for (req in reqs) for (j in 1:8) grpc_send(req, payload)
     grpc_close(srv)
     grpc_close(cl)
   }

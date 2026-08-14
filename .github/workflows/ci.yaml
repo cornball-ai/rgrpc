@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  _R_CHECK_FORCE_SUGGESTS_: "false"
+
+jobs:
+  ci:
+    # Ubuntu only, deliberately: the package links the distro gRPC C++
+    # library (see PLAN.md platform commitment). ubuntu-latest is noble,
+    # the same release the ABI pairing targets.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgrpc++-dev libprotobuf-dev pkgconf
+
+      - name: Setup
+        uses: eddelbuettel/github-actions/r-ci@master
+        with:
+          backend: RAPT
+
+      - name: Dependencies
+        run: ./run.sh install_deps
+
+      - name: Test
+        run: ./run.sh run_tests

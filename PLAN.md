@@ -272,9 +272,22 @@ Dirk contact remains gated on an explicit greenlight from Troy.
   drain-thread op post; already-started ops drain legally through
   `Next` after CQ shutdown. The same latent race existed server-side
   (`pump_locked`, the accept handler's read post) and is closed the
-  same way. `test_cleanup.R` (17 tests) pins the whole family:
-  post-close operations error cleanly, finalizers with work in flight,
-  create/destroy churn.
+  same way. `test_cleanup.R` pins the whole family: post-close
+  operations error cleanly, finalizers with work in flight,
+  create/destroy churn, and a server-side stress (32 streams with
+  128KB writes pumping at close).
+- **Mutation-verified guards.** Removing the server write-pump guard
+  aborts the stress test 5/5 runs. The accept-branch guard could not
+  be made to crash under a deliberately hostile workload (two repro
+  shapes, 5 runs each): `Server::Shutdown` resolves unconsumed accepts
+  before the CQ shutdown, so that guard is defense-in-depth, not a
+  reachable crash. The client-side guard has the original
+  deterministic reproducer (close with a stream write in flight).
+- **Recipes are committed.** `tools/sanitize.sh` is the exact
+  valgrind/ASan/TSan procedure (with `tools/tls-exercise.R` for TLS
+  under TSan) and reproduces the results below from a clean checkout;
+  reference environment and TSan triage criterion are documented in
+  the script header.
 - **Valgrind memcheck**: full suite passes, 0 memory access errors, 0
   definite/indirect leaks. (Possibly-lost records only, from gRPC/absl
   thread-locals and R itself — interior-pointer noise.)
