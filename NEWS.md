@@ -1,3 +1,16 @@
+# grpc 0.0.1.6
+
+- Operational surface: `grpc_tls()` builds PEM credentials for both
+  sides (TLS server, CA-pinned client, mTLS with
+  `require_client_cert`, `target_name_override` for testing); server
+  request events carry the transport `peer` and, under mTLS, the
+  verified `peer_identity`; `grpc_state()` observes channel
+  connectivity; `GRPC_TRACE`/`GRPC_VERBOSITY` documented.
+- Health checking (`grpc.health.v1`) and server reflection
+  (`grpc.reflection.v1`) protos vendored and proven through the
+  generic path — unary Check and bidi ServerReflectionInfo — with no
+  special machinery.
+
 # grpc 0.0.1.5
 
 - Streaming: `grpc_stream()` opens client-, server-, and bidirectional
