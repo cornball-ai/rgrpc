@@ -1,3 +1,20 @@
+# grpc 0.0.1.9
+
+- Fixed a use-after-free race found by the first genuinely
+  instrumented ThreadSanitizer run: `grpc_r_call_start()` and
+  `grpc_r_stream_start()` read the call id after releasing the mutex,
+  and a fast completion can free the call state on the drain thread in
+  that window. The id is now captured under the lock.
+- `tools/sanitize.sh` is fail-closed about its own preconditions,
+  after three stacked silent failures let earlier sanitizer passes run
+  the plain build: libraries are injected via `R_LIBS` and asserted
+  with `find.package()` (littler's `-L` silently does not prepend),
+  sanitizer flags go through `CXX17FLAGS` and instrumentation is
+  proven via `__asan`/`__tsan` symbols in the built `.so`, installs
+  use `--preclean`, an exit trap removes flagged objects even on
+  failure, non-data-race TSan warnings are fatal, and the report
+  classifier self-tests against synthetic logs at every run.
+
 # grpc 0.0.1.8
 
 - Keepalive: `keepalive_ms`/`keepalive_timeout_ms` on `grpc_client()`
