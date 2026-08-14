@@ -1,3 +1,15 @@
+# grpc 0.0.1.8
+
+- Keepalive: `keepalive_ms`/`keepalive_timeout_ms` on `grpc_client()`
+  and `grpc_server()`, plus `min_ping_interval_ms` (server tolerance
+  for client pings; gRPC's default is 5 minutes and kills faster
+  clients). Enabling keepalive also lifts gRPC's ping policing so
+  pings flow on quiet connections.
+- Abortive close: `grpc_finish(drain = FALSE)` discards queued stream
+  writes and prioritizes the terminal status (fencing); `grpc_cancel()`
+  now also works on server requests as the hard escalation past a peer
+  that has stopped reading.
+
 # grpc 0.0.1.7
 
 - Fixed a completion-queue shutdown race that aborted the process when
