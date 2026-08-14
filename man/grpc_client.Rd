@@ -3,11 +3,14 @@
 \alias{grpc_client}
 \title{Create an asynchronous gRPC client}
 \usage{
-grpc_client(target)
+grpc_client(target, credentials = NULL)
 }
 \arguments{
 \item{target}{Server address, e.g. \code{"localhost:50051"} or
 \code{"unix:///run/containerd/containerd.sock"}.}
+
+\item{credentials}{\code{NULL} for a plaintext channel, or a
+\code{\link{grpc_tls}} object.}
 }
 \value{
 An object of class \code{"grpc_client"}.

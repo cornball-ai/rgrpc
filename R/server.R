@@ -12,9 +12,16 @@
 #' outstanding slots would exceed \code{max_active}. Excess incoming
 #' calls queue in the transport until capacity frees up.
 #'
+#' Request events carry the transport \code{peer} address and, on a TLS
+#' listener with \code{require_client_cert}, the verified
+#' \code{peer_identity} (the client certificate's identity values).
+#'
 #' @param address Bind address, e.g. \code{"127.0.0.1:0"} for an
 #'   ephemeral TCP port (see \code{\link{grpc_server_port}}) or
 #'   \code{"unix:/path/to.sock"} for a unix-domain socket.
+#' @param credentials \code{NULL} for a plaintext listener, or a
+#'   \code{\link{grpc_tls}} object (needs \code{cert_file} and
+#'   \code{key_file}; \code{require_client_cert = TRUE} for mTLS).
 #' @param accept_window Outstanding accept slots (burst capacity).
 #' @param max_active Bound on concurrently active calls.
 #' @return An object of class \code{"grpc_server"}.
@@ -28,13 +35,23 @@
 #' grpc_close(srv)
 #' }
 #' @export
-grpc_server <- function(address = "127.0.0.1:0", accept_window = 8L,
-                        max_active = 256L) {
+grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
+                        accept_window = 8L, max_active = 256L) {
     stopifnot(is.character(address), length(address) == 1L,
               is.numeric(accept_window), accept_window >= 1,
               is.numeric(max_active), max_active >= 1)
+    tls <- inherits(credentials, "grpc_tls")
+    if (!is.null(credentials) && !tls) {
+        stop("credentials must be a grpc_tls object")
+    }
+    if (tls && (is.null(credentials$cert) || is.null(credentials$key))) {
+        stop("a TLS server needs cert_file and key_file")
+    }
     xp <- .Call(grpc_r_server2_create, address, as.integer(accept_window),
-                as.integer(max_active))
+                as.integer(max_active), tls,
+        if (tls) credentials$ca, if (tls) credentials$cert,
+        if (tls) credentials$key,
+                tls && credentials$require_client_cert)
     structure(list(ptr = xp, address = address), class = "grpc_server")
 }
 

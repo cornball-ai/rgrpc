@@ -352,21 +352,48 @@ SEXP md_pairs_or_null(const md_pairs &md) {
     return grpc_pairs_to_r(md);
 }
 
+std::string chr_or_empty(SEXP x) {
+    if (x == R_NilValue) return std::string();
+    return std::string(Rf_translateCharUTF8(STRING_ELT(x, 0)));
+}
+
 }  // namespace
 
-extern "C" SEXP grpc_r_client_create(SEXP target) {
+// args: target, tls (lgl), ca/cert/key PEM strings (chr or NULL),
+//       target_name_override (chr or NULL)
+extern "C" SEXP grpc_r_client_create(SEXP target, SEXP tls, SEXP ca,
+                                     SEXP cert, SEXP key, SEXP override_) {
     const char *tgt = Rf_translateCharUTF8(STRING_ELT(target, 0));
     int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (fd < 0) Rf_error("eventfd creation failed");
     auto *c = new client();
     c->event_fd = fd;
-    c->channel = grpc::CreateChannel(tgt, grpc::InsecureChannelCredentials());
+    std::shared_ptr<grpc::ChannelCredentials> creds;
+    if (Rf_asLogical(tls) == TRUE) {
+        grpc::SslCredentialsOptions opts;
+        opts.pem_root_certs = chr_or_empty(ca);
+        opts.pem_private_key = chr_or_empty(key);
+        opts.pem_cert_chain = chr_or_empty(cert);
+        creds = grpc::SslCredentials(opts);
+    } else {
+        creds = grpc::InsecureChannelCredentials();
+    }
+    grpc::ChannelArguments args;
+    std::string ov = chr_or_empty(override_);
+    if (!ov.empty()) args.SetSslTargetNameOverride(ov);
+    c->channel = grpc::CreateCustomChannel(tgt, creds, args);
     c->stub.reset(new grpc::GenericStub(c->channel));
     c->completer = std::thread([c]() { c->run(); });
     SEXP xp = PROTECT(R_MakeExternalPtr(c, R_NilValue, R_NilValue));
     R_RegisterCFinalizerEx(xp, client_finalizer, TRUE);
     UNPROTECT(1);
     return xp;
+}
+
+extern "C" SEXP grpc_r_client_state(SEXP xp) {
+    client *c = get_client(xp);
+    // try_to_connect = false: observe, don't poke
+    return Rf_ScalarInteger((int) c->channel->GetState(false));
 }
 
 extern "C" SEXP grpc_r_client_close(SEXP xp) {

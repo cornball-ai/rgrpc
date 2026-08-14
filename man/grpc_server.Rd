@@ -3,12 +3,21 @@
 \alias{grpc_server}
 \title{Create an asynchronous generic gRPC server}
 \usage{
-grpc_server(address = "127.0.0.1:0", accept_window = 8L, max_active = 256L)
+grpc_server(
+  address = "127.0.0.1:0",
+  credentials = NULL,
+  accept_window = 8L,
+  max_active = 256L
+)
 }
 \arguments{
 \item{address}{Bind address, e.g. \code{"127.0.0.1:0"} for an
 ephemeral TCP port (see \code{\link{grpc_server_port}}) or
 \code{"unix:/path/to.sock"} for a unix-domain socket.}
+
+\item{credentials}{\code{NULL} for a plaintext listener, or a
+\code{\link{grpc_tls}} object (needs \code{cert_file} and
+\code{key_file}; \code{require_client_cert = TRUE} for mTLS).}
 
 \item{accept_window}{Outstanding accept slots (burst capacity).}
 
@@ -30,6 +39,10 @@ Backpressure: at most \code{accept_window} accept slots are kept
 outstanding, and no new slot is posted while active calls plus
 outstanding slots would exceed \code{max_active}. Excess incoming
 calls queue in the transport until capacity frees up.
+
+Request events carry the transport \code{peer} address and, on a TLS
+listener with \code{require_client_cert}, the verified
+\code{peer_identity} (the client certificate's identity values).
 
 }
 \examples{
