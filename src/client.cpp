@@ -443,15 +443,19 @@ extern "C" SEXP grpc_r_call_start(SEXP xp, SEXP method, SEXP request,
     grpc::Slice slice(RAW(request), (size_t) Rf_xlength(request));
     grpc::ByteBuffer req(&slice, 1);
 
+    // The id must be captured under the mutex: once Finish is posted,
+    // a fast completion can erase and delete cs on the drain thread the
+    // moment the lock is released.
+    uint64_t id;
     {
         std::lock_guard<std::mutex> lock(c->mu);
-        cs->id = c->next_id++;
+        id = cs->id = c->next_id++;
         c->calls[cs->id] = cs;
         cs->reader = c->stub->PrepareUnaryCall(&cs->context, m, req, &c->cq);
         cs->reader->StartCall();
         cs->reader->Finish(&cs->response, &cs->status, &cs->tag);
     }
-    return Rf_ScalarReal((double) cs->id);
+    return Rf_ScalarReal((double) id);
 }
 
 extern "C" SEXP grpc_r_call_cancel(SEXP xp, SEXP id) {
@@ -478,15 +482,19 @@ extern "C" SEXP grpc_r_stream_start(SEXP xp, SEXP method, SEXP deadline_ms,
     s->read_cap = Rf_asInteger(read_cap);
     s->write_cap = (size_t) Rf_asInteger(write_cap);
 
+    // Same as call_start: an instantly failing stream (T_START not ok,
+    // Finish, status emitted) can be freed by the drain thread before
+    // the return statement runs, so the id is captured under the mutex.
+    uint64_t id;
     {
         std::lock_guard<std::mutex> lock(c->mu);
-        s->id = c->next_id++;
+        id = s->id = c->next_id++;
         c->streams[s->id] = s;
         s->rw = c->stub->PrepareCall(&s->context, m, &c->cq);
         ++s->pending;
         s->rw->StartCall(&s->t_start);
     }
-    return Rf_ScalarReal((double) s->id);
+    return Rf_ScalarReal((double) id);
 }
 
 // args: client, id, bytes (raw). Returns TRUE if queued, FALSE if the
