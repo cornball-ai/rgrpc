@@ -528,25 +528,70 @@ extern "C" SEXP grpc_r_stream_writes_done(SEXP xp, SEXP id) {
     return Rf_ScalarLogical(TRUE);
 }
 
-// args: client, max_events (int), timeout_ms (int)
-extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
+// args: client, max_events (int), timeout_ms (int), only_id (real or NULL)
+//
+// With only_id set, events for other calls are stepped over and left in
+// `ready` in arrival order, and the wait is satisfied only by a matching
+// event. The deque is the buffer, so there is no second one to keep in
+// sync and no way for a filtered read to lose or reorder another call's
+// events.
+extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
+                                   SEXP only_id) {
     client *c = get_client(xp);
     const int maxn = Rf_asInteger(max_events);
     const int timeout = Rf_asInteger(timeout_ms);
-
-    {
-        std::unique_lock<std::mutex> lock(c->mu);
-        const bool empty = c->ready.empty();
-        lock.unlock();
-        if (empty && timeout != 0) {
-            struct pollfd pfd = {c->event_fd, POLLIN, 0};
-            poll(&pfd, 1, timeout);
-        }
-    }
+    const bool filtered = only_id != R_NilValue;
+    const uint64_t want = filtered ? (uint64_t) Rf_asReal(only_id) : 0;
 
     std::vector<cl_event> batch;
     {
-        std::lock_guard<std::mutex> lock(c->mu);
+        std::unique_lock<std::mutex> lock(c->mu);
+
+        auto matches = [&](const cl_event &ev) {
+            return !filtered || ev.id == want;
+        };
+        auto have_match = [&]() {
+            for (const auto &ev : c->ready)
+                if (matches(ev)) return true;
+            return false;
+        };
+
+        // Wait for an event this call actually wants. A filtered wait
+        // cannot lean on the eventfd staying readable, because another
+        // call's queued events keep it readable forever and poll() would
+        // spin. Draining before each wait makes the descriptor mean "a
+        // completion arrived since I last looked", which is the question
+        // being asked here; the invariant that it is readable exactly
+        // while `ready` is non-empty is restored before returning, and
+        // no other thread reads it in between.
+        if (timeout != 0) {
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(timeout < 0 ? 0 : timeout);
+            while (!have_match()) {
+                uint64_t drained;
+                while (read(c->event_fd, &drained, sizeof drained) > 0) {
+                }
+                int wait_ms = -1;
+                if (timeout > 0) {
+                    const auto left = std::chrono::duration_cast<
+                        std::chrono::milliseconds>(
+                            deadline - std::chrono::steady_clock::now())
+                                          .count();
+                    if (left <= 0) break;
+                    wait_ms = (int) left;
+                }
+                struct pollfd pfd = {c->event_fd, POLLIN, 0};
+                lock.unlock();
+                const int pr = poll(&pfd, 1, wait_ms);
+                lock.lock();
+                // Timed out, or interrupted: hand control back to R
+                // rather than restarting the wait, so an interrupt is
+                // not swallowed for the whole timeout.
+                if (pr <= 0) break;
+            }
+        }
+
         // Drain and re-arm under the same lock that guards `ready`, so
         // readiness is a function of what is left in the deque rather
         // than of how many signals happened to fire. Draining outside
@@ -556,13 +601,18 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
         uint64_t drained;
         while (read(c->event_fd, &drained, sizeof drained) > 0) {
         }
-        while (!c->ready.empty() && (int) batch.size() < maxn) {
-            cl_event ev = std::move(c->ready.front());
-            c->ready.pop_front();
+        auto it = c->ready.begin();
+        while (it != c->ready.end() && (int) batch.size() < maxn) {
+            if (!matches(*it)) {
+                ++it;
+                continue;
+            }
+            cl_event ev = std::move(*it);
+            it = c->ready.erase(it);
             if (ev.kind == EV_SMSG) {
-                auto it = c->streams.find(ev.id);
-                if (it != c->streams.end()) {
-                    stream_state *s = it->second;
+                auto s_it = c->streams.find(ev.id);
+                if (s_it != c->streams.end()) {
+                    stream_state *s = s_it->second;
                     --s->unread;
                     if (s->unread < s->read_cap) c->s_post_read_locked(s);
                 }

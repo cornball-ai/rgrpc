@@ -1,3 +1,36 @@
+# grpc 0.0.1.11
+
+- New `grpc_await(x, timeout_ms)`: waits for events belonging to one
+  call or stream. Other calls' events are stepped over and left queued
+  in arrival order, and the wait ends only when a matching event
+  arrives. This is the demultiplexing every other gRPC binding does
+  for you -- Python hands back a per-call future or response iterator
+  and never exposes a completion queue -- and its absence is what made
+  the attribution mistakes in 0.0.1.10 possible in the first place.
+  Use it for sequential code; use `grpc_poll()` and dispatch on `id`
+  when calls really are concurrent, since awaiting one call means not
+  looking at the others.
+- The filter lives in C over the existing ready deque rather than in
+  an R-side buffer, so there is no second queue to keep in sync and a
+  filtered read cannot lose or reorder another call's events. The wait
+  is filter-aware: it cannot lean on the eventfd, because another
+  call's queued events keep the descriptor readable and the wait would
+  spin instead of blocking.
+- An expired `grpc_await()` leaves the call exactly as it was: await it
+  again to keep waiting. That resumability is what keeps a required
+  `timeout_ms` from being the empty-batch trap in new clothing, so it
+  is now stated rather than implied, along with which clock is which
+  (`deadline_ms` bounds the RPC, `timeout_ms` bounds one wait).
+  Examples check the batch before indexing it: on a slow peer
+  `grpc_await(call, timeout_ms = 1000)[[1]]` raises `subscript out of
+  bounds`, which reads like a caller bug rather than the timeout it is.
+- The documentation stopped teaching the bug. The README's round-trip
+  and typed-call examples, and `inst/examples/cri-list-pods.R`, all
+  indexed a poll batch as `evs[[1]]` or hand-rolled a `drain()` helper
+  that returned the first event of whatever arrived. Correct only
+  while nothing else is in flight, which is exactly how a caller
+  infers the wrong model.
+
 # grpc 0.0.1.10
 
 - Fixed spurious wake-ups from `grpc_poll()` (#12). The eventfd

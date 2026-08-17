@@ -139,7 +139,7 @@ extern "C" SEXP grpc_r_client_state(SEXP);
 extern "C" SEXP grpc_r_client_close(SEXP);
 extern "C" SEXP grpc_r_client_fd(SEXP);
 extern "C" SEXP grpc_r_client_pending(SEXP);
-extern "C" SEXP grpc_r_client_poll(SEXP, SEXP, SEXP);
+extern "C" SEXP grpc_r_client_poll(SEXP, SEXP, SEXP, SEXP);
 extern "C" SEXP grpc_r_call_start(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
 extern "C" SEXP grpc_r_call_cancel(SEXP, SEXP);
 extern "C" SEXP grpc_r_stream_start(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
@@ -174,7 +174,7 @@ static const R_CallMethodDef call_methods[] = {
     {"grpc_r_client_close",    (DL_FUNC) &grpc_r_client_close,    1},
     {"grpc_r_client_fd",       (DL_FUNC) &grpc_r_client_fd,       1},
     {"grpc_r_client_pending",  (DL_FUNC) &grpc_r_client_pending,  1},
-    {"grpc_r_client_poll",     (DL_FUNC) &grpc_r_client_poll,     3},
+    {"grpc_r_client_poll",     (DL_FUNC) &grpc_r_client_poll,     4},
     {"grpc_r_call_start",      (DL_FUNC) &grpc_r_call_start,      6},
     {"grpc_r_call_cancel",     (DL_FUNC) &grpc_r_call_cancel,     2},
     {"grpc_r_server2_create",  (DL_FUNC) &grpc_r_server2_create,  11},

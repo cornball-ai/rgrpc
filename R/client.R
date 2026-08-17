@@ -257,13 +257,13 @@ grpc_cancel.grpc_stream <- function(x) {
     invisible(.Call(grpc_r_call_cancel, x$client$ptr, x$id))
 }
 
-#' @export
-grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
-    events <- .Call(grpc_r_client_poll, x$ptr, as.integer(max_events),
-                    as.integer(timeout_ms))
+## Add status_name and, on a typed call, response_message; forget a
+## call's types once its terminal event has been handed over. Shared by
+## grpc_poll() and grpc_await() so both deliver identical events.
+decorate_events <- function(client, events) {
     lapply(events, function(ev) {
         key <- as.character(ev$id)
-        types <- get0(key, envir = x$calls, inherits = FALSE)
+        types <- get0(key, envir = client$calls, inherits = FALSE)
         terminal <- ev$kind %in% c("unary", "stream_status")
         if (terminal) {
             ev$status_name <- names(grpc_status_codes)[match(ev$status,
@@ -277,10 +277,100 @@ grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
             ev$response_message <- grpc_decode(ev$response, types$output)
         }
         if (terminal && !is.null(types)) {
-            rm(list = key, envir = x$calls)
+            rm(list = key, envir = client$calls)
         }
         ev
     })
+}
+
+#' @export
+grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
+    decorate_events(x, .Call(grpc_r_client_poll, x$ptr,
+                             as.integer(max_events), as.integer(timeout_ms),
+                             NULL))
+}
+
+#' Wait for events belonging to one call
+#'
+#' Like \code{\link{grpc_poll}}, but scoped to a single call or stream:
+#' only that call's events are returned, and the wait ends when one of
+#' them arrives rather than when anything at all does. Events for other
+#' calls stay queued in arrival order and are delivered by a later
+#' \code{\link{grpc_poll}} or \code{grpc_await} on their own call.
+#'
+#' This is the sequential-mode API. It removes the demultiplexing a
+#' shared client otherwise pushes onto the caller: there is no way for a
+#' \code{grpc_await} loop to splice another call's messages into this
+#' one's payload, or to mistake another call's completion for this one's.
+#' The cost is that awaiting one call means not looking at the others, so
+#' a second call's deadline can pass unnoticed while this one is waited
+#' on. Drive genuinely concurrent work with \code{\link{grpc_poll}} and
+#' dispatch on \code{id}.
+#'
+#' A call ends at its terminal event, so loop until that arrives: a
+#' \code{"unary"} event for \code{\link{grpc_call}}, a
+#' \code{"stream_status"} for \code{\link{grpc_stream}}.
+#'
+#' Two different clocks are in play, and the words for them are not
+#' self-distinguishing. \code{deadline_ms} on \code{\link{grpc_call}} or
+#' \code{\link{grpc_stream}} bounds the RPC: when it expires the call
+#' really is over, and the peer is told. \code{timeout_ms} here bounds
+#' only this wait. Setting the wait shorter than the deadline is normal
+#' and harmless; setting no deadline at all is what makes
+#' \code{timeout_ms = -1} an unbounded wait.
+#'
+#' An empty result means \code{timeout_ms} expired with nothing for this
+#' call. It is not a failure and not an answer: an expired await leaves
+#' the call exactly as it was, so await it again to keep waiting, and
+#' the worst an expiry costs is another trip round the loop. Because an
+#' empty result is possible, index the batch only after checking it --
+#' \code{grpc_await(call, timeout_ms = 1000)[[1]]} raises \code{subscript
+#' out of bounds} on a slow peer, which reads like a bug in the caller
+#' rather than the timeout it is.
+#'
+#' @param x A \code{"grpc_call"} or \code{"grpc_stream"} object.
+#' @param timeout_ms How long to wait for an event belonging to
+#'   \code{x}: \code{0} returns immediately, a positive value waits up to
+#'   that many milliseconds, \code{-1} waits indefinitely. Required, so
+#'   that a stalled peer cannot silently become an unbounded wait; the
+#'   call's own \code{deadline_ms} is the other half of that guarantee.
+#' @param max_events Maximum events to return in this batch.
+#' @return A list of events for \code{x} (possibly empty), in arrival
+#'   order.
+#' @examples
+#' \dontrun{
+#' ## unary: keep waiting until the completion arrives. The call's own
+#' ## deadline_ms is what guarantees this loop ends.
+#' call <- grpc_call(client, "/demo.Echo/Say", req, deadline_ms = 5000)
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000)
+#'   if (length(evs)) break                       # empty just means "not yet"
+#' }
+#' evs[[1]]$status_name
+#'
+#' ## server stream: accumulate to the terminal status
+#' s <- grpc_stream(client, "/demo.Big/List", deadline_ms = 15000)
+#' grpc_writes_done(s)
+#' out <- list()
+#' repeat {
+#'   evs <- grpc_await(s, timeout_ms = 1000)
+#'   for (ev in evs) if (ev$kind == "stream_msg") out <- c(out, list(ev$response))
+#'   if (any(vapply(evs, function(e) e$kind == "stream_status", TRUE))) break
+#' }
+#' }
+#' @export
+grpc_await <- function(x, timeout_ms, max_events = 64L) {
+    if (!inherits(x, "grpc_call") && !inherits(x, "grpc_stream")) {
+        stop("x must be a grpc_call or grpc_stream")
+    }
+    stopifnot(is.numeric(timeout_ms), length(timeout_ms) == 1L,
+              is.finite(timeout_ms), timeout_ms >= -1,
+              timeout_ms <= .Machine$integer.max)
+    stopifnot(is.numeric(max_events), length(max_events) == 1L, max_events >= 1)
+    decorate_events(x$client,
+                    .Call(grpc_r_client_poll, x$client$ptr,
+                          as.integer(max_events), as.integer(timeout_ms),
+                          as.numeric(x$id)))
 }
 
 #' @export
