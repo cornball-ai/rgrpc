@@ -14,17 +14,11 @@ RProtoBuf::readProtoFiles2("api.proto", protoPath = proto_root)
 rt <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")
 
 cl <- grpc_client(sprintf("unix://%s", socket))
-drain <- function(cl) {
-  repeat {
-    evs <- grpc_poll(cl, timeout_ms = 2000L)
-    if (length(evs)) return(evs[[1]])
-  }
-}
 
 call <- grpc_call(cl, grpc_method(rt, "Version"),
                   RProtoBuf::P("runtime.v1.VersionRequest")$new(version = "v1"),
                   deadline_ms = 5000)
-v <- drain(cl)
+v <- grpc_await(call, timeout_ms = 5000)[[1]]
 stopifnot(v$status_name == "OK")
 cat("runtime:", v$response_message$runtime_name,
     v$response_message$runtime_version, "\n")
@@ -32,7 +26,7 @@ cat("runtime:", v$response_message$runtime_name,
 call <- grpc_call(cl, grpc_method(rt, "ListPodSandbox"),
                   RProtoBuf::P("runtime.v1.ListPodSandboxRequest")$new(),
                   deadline_ms = 5000)
-p <- drain(cl)
+p <- grpc_await(call, timeout_ms = 5000)[[1]]
 stopifnot(p$status_name == "OK")
 pods <- p$response_message$items
 cat(length(pods), "pod sandbox(es)\n")

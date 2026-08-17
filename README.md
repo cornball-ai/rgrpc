@@ -68,20 +68,19 @@ cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 
 call <- grpc_call(cl, "/demo.Echo/Say", as.raw(1:4), deadline_ms = 5000)
 
-repeat {
-  evs <- grpc_poll(srv, timeout_ms = 100L)
-  if (length(evs)) {
-    grpc_reply(evs[[1]], evs[[1]]$request)
-    break
+answered <- FALSE
+while (!answered) {
+  for (ev in grpc_poll(srv, timeout_ms = 100L)) {
+    if (ev$type == "request") {
+      grpc_reply(ev, ev$request)
+      answered <- TRUE
+    }
   }
 }
 
-repeat {
-  evs <- grpc_poll(cl, timeout_ms = 100L)
-  if (length(evs)) break
-}
-evs[[1]]$status_name   # "OK"
-evs[[1]]$response      # the echoed bytes
+ev <- grpc_await(call, timeout_ms = 5000)[[1]]
+ev$status_name   # "OK"
+ev$response      # the echoed bytes
 
 grpc_close(cl)
 grpc_close(srv)
@@ -91,6 +90,14 @@ The server accepts any method name; there are no registered handlers,
 just events. What arrives is the method path, metadata, deadline, peer
 address (and, under mTLS, the certificate-verified peer identity), and
 the request bytes.
+
+Note the two ways to receive. `grpc_poll()` drains one queue for the
+whole client or server, so a batch can mix events from every call in
+flight, in completion order: iterate it and dispatch on `id`.
+`grpc_await()` scopes the wait to a single call and steps over
+everything else, which is what you want in sequential code. Indexing a
+poll batch as `evs[[1]]` works only while nothing else is in flight,
+and stops working silently once something is.
 
 ## Typed calls with RProtoBuf
 
@@ -118,19 +125,18 @@ cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 call <- grpc_call(cl, say, P("demo.Ping")$new(msg = "hello"),
                   deadline_ms = 5000)
 
-repeat {
-  evs <- grpc_poll(srv, timeout_ms = 100L)
-  if (length(evs)) {
-    req <- grpc_decode(evs[[1]]$request, say$input_type)
-    grpc_reply(evs[[1]], P("demo.Ping")$new(msg = toupper(req$msg)))
-    break
+answered <- FALSE
+while (!answered) {
+  for (ev in grpc_poll(srv, timeout_ms = 100L)) {
+    if (ev$type == "request") {
+      req <- grpc_decode(ev$request, say$input_type)
+      grpc_reply(ev, P("demo.Ping")$new(msg = toupper(req$msg)))
+      answered <- TRUE
+    }
   }
 }
-repeat {
-  evs <- grpc_poll(cl, timeout_ms = 100L)
-  if (length(evs)) break
-}
-evs[[1]]$response_message$msg   # "HELLO"
+
+grpc_await(call, timeout_ms = 5000)[[1]]$response_message$msg   # "HELLO"
 
 grpc_close(cl)
 grpc_close(srv)
@@ -156,6 +162,8 @@ cl <- grpc_client("unix:///run/containerd/containerd.sock")
 rt <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")
 call <- grpc_call(cl, grpc_method(rt, "Version"),
                   P("runtime.v1.VersionRequest")$new(), deadline_ms = 2000)
+
+grpc_await(call, timeout_ms = 2000)[[1]]$response_message$runtime_name
 ```
 
 `inst/examples/cri-list-pods.R` is the runnable version (runtime
