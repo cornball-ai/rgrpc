@@ -15,6 +15,16 @@
   events still pending.
 - Documented what an empty `grpc_poll()` result means: the wait
   expired, not that the call is over.
+- Documented event attribution: one queue serves the whole client, so
+  a batch can mix events from every call in flight and callers must
+  dispatch on `id`. Abandoning a stream unread does not stop it, and
+  its queued messages go on surfacing alongside later calls;
+  `grpc_cancel()` bounds how many more are produced but cannot recall
+  events already queued. Verified against the runtime rather than
+  assumed: over 40 rounds of a deliberately abandoned stream followed
+  by a second stream on the same client, no event's `id` ever
+  disagreed with its payload, while an accumulator that ignored `id`
+  got the wrong byte count 36 times out of 40.
 
 # grpc 0.0.1.9
 

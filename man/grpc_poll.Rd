@@ -41,6 +41,15 @@ its terminal event is delivered (\code{"unary"} for a call,
 than treating an empty batch as the end of a call;
 \code{\link{grpc_pending}} reports what is still in flight.
 
+One queue serves the whole client or server, so a batch can mix
+events from every call in flight, in completion order. Dispatch on
+\code{id}: a caller that consumes every \code{"stream_msg"} it sees
+as belonging to the stream it happens to be reading will splice in
+messages from another one. This bites hardest after a stream is
+abandoned unread, since its queued messages keep arriving --
+\code{\link{grpc_cancel}} bounds how many more are produced but
+cannot recall events already queued.
+
 }
 \examples{
 \dontrun{
