@@ -487,6 +487,34 @@ in the family raw and left the demux to every caller.
   for an unrelated call's request to arrive first; valgrind found it.
   It matches on a marker byte now.
 
+## Per-call waiting, server side (increment 11, done 2026-08-17)
+
+Closes the asymmetry increment 10 left: the documentation said "one
+queue serves the whole client **or server**" while the remedy shipped
+for the client only, so a server driving concurrent streaming calls
+still hand-rolled the `id` dispatch that had already gone wrong five
+times downstream.
+
+- **`grpc_await()` is now an S3 generic** over `"grpc_call"`,
+  `"grpc_stream"`, and `"grpc_request"`. Call sites are unaffected — the
+  signature is unchanged — and `saber::blast_radius()` confirmed no
+  caller depends on it being a plain function.
+- **The server filter is the same shape as the client's**, over
+  `rserver::ready`, with the same filter-aware wait. The server's take
+  loop has no per-event bookkeeping, so it is strictly simpler.
+- **The awaited scope differs, and that is inherent.** A `grpc_request`
+  arrives *from* `grpc_poll()`, so there is nothing to await until one
+  has been received, and a server call has no terminal event of its own:
+  it ends when the handler ends it. `"client_done"` is what a
+  client-streaming handler loops to, not a status.
+- **Verified non-vacuous the same way as the client.** Built the naive
+  server variant that waits on "anything queued": it fails exactly the
+  spin assertion 3/3 and passes the other 47. Writing the test also
+  surfaced that the obvious version is vacuous — the server only queues
+  a message when `grpc_read()` posts one, so without a read deliberately
+  posted on the second call there is nothing for the filter to step
+  over, and the scoping assertion passes trivially.
+
 ## Verification
 
 - Interoperate with official C++, Go, and Python gRPC implementations
@@ -643,15 +671,6 @@ new surfaces with `.proto` contracts, not a retrofit.
   target). Decide before the first push.
 - Generic dynamic API only versus optional generated R conveniences.
 - Strict handling of unknown fields versus normal protobuf evolution.
-- **Server-side per-call waiting.** `grpc_await()` closed the demux gap
-  on the client, but `grpc_poll(server)` still hands back one queue for
-  every call in flight, so a server driving concurrent streaming calls
-  hand-rolls the `id` dispatch that downstream got wrong five times.
-  The shape differs: a `grpc_request` arrives *from* poll rather than
-  being created by the caller, so there is nothing to await until one
-  has been received, and the useful scope is a request's subsequent
-  `stream_msg`/`client_done` events. Documented hazard, unshipped
-  remedy — the asymmetry is the argument for closing it.
 - **A one-call-one-answer convenience.** Both the CRI example and the
   guarded unary idiom want "block until this call answers"; the example
   grew an `await1()` helper to say it. Against: a helper that hides the
