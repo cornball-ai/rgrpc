@@ -543,13 +543,19 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
             poll(&pfd, 1, timeout);
         }
     }
-    uint64_t drained;
-    while (read(c->event_fd, &drained, sizeof drained) > 0) {
-    }
 
     std::vector<cl_event> batch;
     {
         std::lock_guard<std::mutex> lock(c->mu);
+        // Drain and re-arm under the same lock that guards `ready`, so
+        // readiness is a function of what is left in the deque rather
+        // than of how many signals happened to fire. Draining outside
+        // the lock leaves the counter holding every signal posted after
+        // the read, even though those events are taken by the batch
+        // below — the next poll then returns instantly with nothing.
+        uint64_t drained;
+        while (read(c->event_fd, &drained, sizeof drained) > 0) {
+        }
         while (!c->ready.empty() && (int) batch.size() < maxn) {
             cl_event ev = std::move(c->ready.front());
             c->ready.pop_front();
@@ -563,6 +569,7 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
             }
             batch.push_back(std::move(ev));
         }
+        if (!c->ready.empty()) c->signal();
     }
 
     static const char *kind_names[] = {"unary", "stream_msg",

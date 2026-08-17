@@ -1,3 +1,35 @@
+# grpc 0.0.1.10
+
+- Fixed spurious wake-ups from `grpc_poll()` (#12). The eventfd
+  carries one signal per event, but the counter was drained outside
+  the mutex guarding the ready deque, so every signal posted between
+  the drain and the batch below stayed counted even though the batch
+  took those events. The leftover count was then spent as instant,
+  empty polls: a caller that reads "no events" as "this call never
+  started" abandons a live stream, which showed up as sequential
+  server-streaming calls on a shared client failing 1-7 times in 30.
+  The drain and a re-arm now happen under that mutex, so the
+  descriptor is readable exactly while events are queued. Affects
+  clients and servers alike, and `grpc_fd()` integrations most of all,
+  since a partial batch used to leave the descriptor unreadable with
+  events still pending.
+- Documented what an empty `grpc_poll()` result means: the wait
+  expired, not that the call is over.
+- Documented event attribution: one queue serves the whole client, so
+  a batch can mix events from every call in flight, in completion
+  order, and callers must dispatch on `id`. Taking `events[[1]]` as
+  the answer to a unary call and accumulating every `"stream_msg"`
+  into one stream's payload are the same assumption -- one queue per
+  call -- and it does not hold. Abandoning a stream unread does not
+  stop it, and
+  its queued messages go on surfacing alongside later calls;
+  `grpc_cancel()` bounds how many more are produced but cannot recall
+  events already queued. Verified against the runtime rather than
+  assumed: over 40 rounds of a deliberately abandoned stream followed
+  by a second stream on the same client, no event's `id` ever
+  disagreed with its payload, while an accumulator that ignored `id`
+  got the wrong byte count 36 times out of 40.
+
 # grpc 0.0.1.9
 
 - Fixed a use-after-free race found by the first genuinely

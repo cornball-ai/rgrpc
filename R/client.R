@@ -161,6 +161,13 @@ grpc_call <- function(client, method, request, deadline_ms = NULL,
 #' stream stops reading until \code{\link{grpc_poll}} drains, and HTTP/2
 #' backpressure propagates to the peer.
 #'
+#' A stream runs until its \code{"stream_status"}, not until the caller
+#' loses interest: dropping the returned object stops nothing, and the
+#' stream's queued messages keep surfacing in \code{\link{grpc_poll}}
+#' alongside later calls on the same client. Read every stream to its
+#' status, or \code{\link{grpc_cancel}} the ones you are done with, and
+#' dispatch events on \code{id} either way.
+#'
 #' @param client A \code{"grpc_client"} object.
 #' @param method Full method path, or a \code{"grpc_method"} object for
 #'   a typed stream (any streaming shape).

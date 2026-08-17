@@ -34,6 +34,26 @@ For a \code{"grpc_server"}, each event is either an incoming request
 cancellation notice (\code{type = "cancelled"}, \code{id}) for a
 request the peer abandoned before it was answered.
 
+An empty result means the wait expired with nothing queued at that
+moment; it says nothing about outstanding work, which ends only when
+its terminal event is delivered (\code{"unary"} for a call,
+\code{"stream_status"} for a stream). Loop until that event rather
+than treating an empty batch as the end of a call;
+\code{\link{grpc_pending}} reports what is still in flight.
+
+One queue serves the whole client or server, so a batch can mix
+events from every call in flight, and they arrive in completion
+order rather than the order the calls were started. Dispatch on
+\code{id}, in both directions: the first event in a batch need not
+belong to the call you just started, and not every
+\code{"stream_msg"} in it belongs to the stream you are reading.
+Taking \code{events[[1]]} as the answer to a unary call, and
+accumulating every \code{"stream_msg"} into one stream's payload,
+are the same assumption -- one queue per call -- and it does not
+hold. This bites hardest after a stream is abandoned unread, since
+its queued messages keep arriving; \code{\link{grpc_cancel}} bounds
+how many more are produced but cannot recall events already queued.
+
 }
 \examples{
 \dontrun{
