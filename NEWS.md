@@ -16,6 +16,14 @@
   is filter-aware: it cannot lean on the eventfd, because another
   call's queued events keep the descriptor readable and the wait would
   spin instead of blocking.
+- An expired `grpc_await()` leaves the call exactly as it was: await it
+  again to keep waiting. That resumability is what keeps a required
+  `timeout_ms` from being the empty-batch trap in new clothing, so it
+  is now stated rather than implied, along with which clock is which
+  (`deadline_ms` bounds the RPC, `timeout_ms` bounds one wait).
+  Examples check the batch before indexing it: on a slow peer
+  `grpc_await(call, timeout_ms = 1000)[[1]]` raises `subscript out of
+  bounds`, which reads like a caller bug rather than the timeout it is.
 - The documentation stopped teaching the bug. The README's round-trip
   and typed-call examples, and `inst/examples/cri-list-pods.R`, all
   indexed a poll batch as `evs[[1]]` or hand-rolled a `drain()` helper

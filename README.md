@@ -78,9 +78,12 @@ while (!answered) {
   }
 }
 
-ev <- grpc_await(call, timeout_ms = 5000)[[1]]
-ev$status_name   # "OK"
-ev$response      # the echoed bytes
+repeat {
+  evs <- grpc_await(call, timeout_ms = 1000L)
+  if (length(evs)) break          # empty means "not yet", never "failed"
+}
+evs[[1]]$status_name   # "OK"
+evs[[1]]$response      # the echoed bytes
 
 grpc_close(cl)
 grpc_close(srv)
@@ -98,6 +101,12 @@ flight, in completion order: iterate it and dispatch on `id`.
 everything else, which is what you want in sequential code. Indexing a
 poll batch as `evs[[1]]` works only while nothing else is in flight,
 and stops working silently once something is.
+
+Either way an empty result means the wait expired, never that the call
+failed. `grpc_await()` leaves the call untouched on expiry, so awaiting
+again resumes it; the call's own `deadline_ms` is what bounds the loop.
+Check the length before indexing, or a slow peer turns a timeout into
+`subscript out of bounds`.
 
 ## Typed calls with RProtoBuf
 
@@ -136,7 +145,11 @@ while (!answered) {
   }
 }
 
-grpc_await(call, timeout_ms = 5000)[[1]]$response_message$msg   # "HELLO"
+repeat {
+  evs <- grpc_await(call, timeout_ms = 1000L)
+  if (length(evs)) break
+}
+evs[[1]]$response_message$msg   # "HELLO"
 
 grpc_close(cl)
 grpc_close(srv)
@@ -163,7 +176,11 @@ rt <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")
 call <- grpc_call(cl, grpc_method(rt, "Version"),
                   P("runtime.v1.VersionRequest")$new(), deadline_ms = 2000)
 
-grpc_await(call, timeout_ms = 2000)[[1]]$response_message$runtime_name
+repeat {
+  evs <- grpc_await(call, timeout_ms = 500L)
+  if (length(evs)) break
+}
+evs[[1]]$response_message$runtime_name
 ```
 
 `inst/examples/cri-list-pods.R` is the runnable version (runtime

@@ -15,10 +15,20 @@ rt <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")
 
 cl <- grpc_client(sprintf("unix://%s", socket))
 
+# An empty grpc_await() means the wait expired, not that the call died:
+# the call is untouched, so awaiting again resumes it. deadline_ms on the
+# call is what guarantees this loop ends.
+await1 <- function(call) {
+  repeat {
+    evs <- grpc_await(call, timeout_ms = 1000L)
+    if (length(evs)) return(evs[[1]])
+  }
+}
+
 call <- grpc_call(cl, grpc_method(rt, "Version"),
                   RProtoBuf::P("runtime.v1.VersionRequest")$new(version = "v1"),
                   deadline_ms = 5000)
-v <- grpc_await(call, timeout_ms = 5000)[[1]]
+v <- await1(call)
 stopifnot(v$status_name == "OK")
 cat("runtime:", v$response_message$runtime_name,
     v$response_message$runtime_version, "\n")
@@ -26,7 +36,7 @@ cat("runtime:", v$response_message$runtime_name,
 call <- grpc_call(cl, grpc_method(rt, "ListPodSandbox"),
                   RProtoBuf::P("runtime.v1.ListPodSandboxRequest")$new(),
                   deadline_ms = 5000)
-p <- grpc_await(call, timeout_ms = 5000)[[1]]
+p <- await1(call)
 stopifnot(p$status_name == "OK")
 pods <- p$response_message$items
 cat(length(pods), "pod sandbox(es)\n")

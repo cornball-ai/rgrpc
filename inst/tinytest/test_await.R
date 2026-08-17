@@ -120,6 +120,31 @@ if (at_home()) {
   expect_equal(a_msgs, nmsg - 1L)             # one was consumed before B
   expect_equal(a_seq, seq_len(nmsg)[-1L])     # and order survived
 
+  ## ---- an expired await leaves the call untouched ----
+  ## This is what keeps a required timeout from being the empty-batch
+  ## trap in new clothing: expiry costs a loop, not the call. Match the
+  ## reply on method, since the quiet call above is still unanswered.
+  again <- grpc_call(cl, "/demo.Echo/Say", as.raw(1:4), deadline_ms = 30000)
+  expect_equal(length(grpc_await(again, timeout_ms = 1L)), 0L)
+
+  replied <- FALSE
+  t0 <- Sys.time()
+  while (!replied && as.numeric(Sys.time() - t0, units = "secs") < 60) {
+    for (ev in grpc_poll(srv, timeout_ms = 100L)) {
+      if (identical(ev$type, "request") &&
+          identical(ev$method, "/demo.Echo/Say")) {
+        expect_true(grpc_reply(ev, ev$request))
+        replied <- TRUE
+      }
+    }
+  }
+  expect_true(replied)
+
+  resumed <- grpc_await(again, timeout_ms = 30000L)
+  expect_equal(length(resumed), 1L)
+  expect_equal(resumed[[1]]$status_name, "OK")
+  expect_equal(resumed[[1]]$response, as.raw(1:4))
+
   ## ---- argument checking ----
   expect_error(grpc_await(cl, timeout_ms = 0L))        # not a call
   expect_error(grpc_await(b))                          # timeout required

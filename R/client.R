@@ -309,8 +309,24 @@ grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
 #'
 #' A call ends at its terminal event, so loop until that arrives: a
 #' \code{"unary"} event for \code{\link{grpc_call}}, a
-#' \code{"stream_status"} for \code{\link{grpc_stream}}. An empty result
-#' means \code{timeout_ms} expired with nothing for this call.
+#' \code{"stream_status"} for \code{\link{grpc_stream}}.
+#'
+#' Two different clocks are in play, and the words for them are not
+#' self-distinguishing. \code{deadline_ms} on \code{\link{grpc_call}} or
+#' \code{\link{grpc_stream}} bounds the RPC: when it expires the call
+#' really is over, and the peer is told. \code{timeout_ms} here bounds
+#' only this wait. Setting the wait shorter than the deadline is normal
+#' and harmless; setting no deadline at all is what makes
+#' \code{timeout_ms = -1} an unbounded wait.
+#'
+#' An empty result means \code{timeout_ms} expired with nothing for this
+#' call. It is not a failure and not an answer: an expired await leaves
+#' the call exactly as it was, so await it again to keep waiting, and
+#' the worst an expiry costs is another trip round the loop. Because an
+#' empty result is possible, index the batch only after checking it --
+#' \code{grpc_await(call, timeout_ms = 1000)[[1]]} raises \code{subscript
+#' out of bounds} on a slow peer, which reads like a bug in the caller
+#' rather than the timeout it is.
 #'
 #' @param x A \code{"grpc_call"} or \code{"grpc_stream"} object.
 #' @param timeout_ms How long to wait for an event belonging to
@@ -323,17 +339,21 @@ grpc_poll.grpc_client <- function(x, max_events = 64L, timeout_ms = 0L) {
 #'   order.
 #' @examples
 #' \dontrun{
-#' ## unary: one completion, no batch to pick through
+#' ## unary: keep waiting until the completion arrives. The call's own
+#' ## deadline_ms is what guarantees this loop ends.
 #' call <- grpc_call(client, "/demo.Echo/Say", req, deadline_ms = 5000)
-#' ev <- grpc_await(call, timeout_ms = 5000)[[1]]
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000)
+#'   if (length(evs)) break                       # empty just means "not yet"
+#' }
+#' evs[[1]]$status_name
 #'
 #' ## server stream: accumulate to the terminal status
 #' s <- grpc_stream(client, "/demo.Big/List", deadline_ms = 15000)
 #' grpc_writes_done(s)
 #' out <- list()
 #' repeat {
-#'   evs <- grpc_await(s, timeout_ms = 5000)
-#'   if (!length(evs)) next            # nothing yet; the deadline bounds it
+#'   evs <- grpc_await(s, timeout_ms = 1000)
 #'   for (ev in evs) if (ev$kind == "stream_msg") out <- c(out, list(ev$response))
 #'   if (any(vapply(evs, function(e) e$kind == "stream_status", TRUE))) break
 #' }
