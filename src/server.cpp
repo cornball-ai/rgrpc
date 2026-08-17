@@ -568,17 +568,20 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
             poll(&pfd, 1, timeout);
         }
     }
-    uint64_t drained;
-    while (read(s->event_fd, &drained, sizeof drained) > 0) {
-    }
 
     std::vector<sv_event> batch;
     {
         std::lock_guard<std::mutex> lock(s->mu);
+        // Drain and re-arm under the same lock that guards `ready`; see
+        // grpc_r_client_poll for why the drain cannot sit outside it.
+        uint64_t drained;
+        while (read(s->event_fd, &drained, sizeof drained) > 0) {
+        }
         while (!s->ready.empty() && (int) batch.size() < maxn) {
             batch.push_back(std::move(s->ready.front()));
             s->ready.pop_front();
         }
+        if (!s->ready.empty()) s->signal();
     }
 
     static const char *type_names[] = {"request", "cancelled", "stream_msg",

@@ -12,10 +12,11 @@ grpc_fd(x)
 Integer file descriptor.
 }
 \description{
-Returns the object's eventfd. It becomes readable whenever an event is
+Returns the object's eventfd. It is readable exactly while events are
 queued, so an event loop can wake on it instead of polling, e.g. with
 \code{later::later_fd()}. Do not read from this descriptor;
-\code{\link{grpc_poll}} drains it.
+\code{\link{grpc_poll}} drains it and leaves it readable if it
+returned a partial batch.
 }
 \examples{
 \dontrun{

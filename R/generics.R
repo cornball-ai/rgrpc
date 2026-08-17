@@ -15,6 +15,13 @@
 #' cancellation notice (\code{type = "cancelled"}, \code{id}) for a
 #' request the peer abandoned before it was answered.
 #'
+#' An empty result means the wait expired with nothing queued at that
+#' moment; it says nothing about outstanding work, which ends only when
+#' its terminal event is delivered (\code{"unary"} for a call,
+#' \code{"stream_status"} for a stream). Loop until that event rather
+#' than treating an empty batch as the end of a call;
+#' \code{\link{grpc_pending}} reports what is still in flight.
+#'
 #' @param x A \code{"grpc_client"} or \code{"grpc_server"} object.
 #' @param max_events Maximum events to return in this batch.
 #' @param timeout_ms How long to wait if no event is ready: \code{0}
@@ -33,10 +40,11 @@ grpc_poll <- function(x, max_events = 64L, timeout_ms = 0L) {
 
 #' Completion wakeup file descriptor
 #'
-#' Returns the object's eventfd. It becomes readable whenever an event is
+#' Returns the object's eventfd. It is readable exactly while events are
 #' queued, so an event loop can wake on it instead of polling, e.g. with
 #' \code{later::later_fd()}. Do not read from this descriptor;
-#' \code{\link{grpc_poll}} drains it.
+#' \code{\link{grpc_poll}} drains it and leaves it readable if it
+#' returned a partial batch.
 #'
 #' @param x A \code{"grpc_client"} or \code{"grpc_server"} object.
 #' @return Integer file descriptor.
