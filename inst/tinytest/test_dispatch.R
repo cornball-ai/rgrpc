@@ -81,6 +81,52 @@ if (at_home()) {
   expect_equal(mismatched, 0L)
   expect_equal(wrong_size, 0L)
 
+  ## ---- unary: a batch holds several completions, in completion order ----
+  ## Taking events[[1]] as "my" answer is the same bad assumption as
+  ## accumulating every stream_msg into one stream.
+  ncall <- 8L
+  want <- list()
+  for (i in seq_len(ncall)) {
+    payload <- as.raw(rep(100L + i, 64L))
+    call <- grpc_call(cl, "/demo.Mark/Say", payload, deadline_ms = 15000)
+    want[[as.character(call$id)]] <- payload
+  }
+
+  answered <- 0L
+  t0 <- Sys.time()
+  while (answered < ncall &&
+         as.numeric(Sys.time() - t0, units = "secs") < 30) {
+    for (ev in grpc_poll(srv, timeout_ms = 100L)) {
+      if (identical(ev$type, "request")) {
+        expect_true(grpc_reply(ev, ev$request))   # echo
+        answered <- answered + 1L
+      }
+    }
+  }
+  expect_equal(answered, ncall)
+
+  got <- 0L
+  wrong_answer <- 0L
+  batched <- FALSE
+  t0 <- Sys.time()
+  while (got < ncall && as.numeric(Sys.time() - t0, units = "secs") < 30) {
+    evs <- grpc_poll(cl, timeout_ms = 100L)
+    if (length(evs) > 1L) batched <- TRUE
+    for (ev in evs) {
+      if (identical(ev$kind, "unary")) {
+        got <- got + 1L
+        if (!identical(ev$response, want[[as.character(ev$id)]])) {
+          wrong_answer <- wrong_answer + 1L
+        }
+      }
+    }
+  }
+  expect_equal(got, ncall)
+  ## Non-vacuous: at least one batch really did carry several completions,
+  ## so events[[1]] was not the only thing in it.
+  expect_true(batched)
+  expect_equal(wrong_answer, 0L)
+
   grpc_close(cl)
   grpc_close(srv)
 }

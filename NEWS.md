@@ -16,8 +16,12 @@
 - Documented what an empty `grpc_poll()` result means: the wait
   expired, not that the call is over.
 - Documented event attribution: one queue serves the whole client, so
-  a batch can mix events from every call in flight and callers must
-  dispatch on `id`. Abandoning a stream unread does not stop it, and
+  a batch can mix events from every call in flight, in completion
+  order, and callers must dispatch on `id`. Taking `events[[1]]` as
+  the answer to a unary call and accumulating every `"stream_msg"`
+  into one stream's payload are the same assumption -- one queue per
+  call -- and it does not hold. Abandoning a stream unread does not
+  stop it, and
   its queued messages go on surfacing alongside later calls;
   `grpc_cancel()` bounds how many more are produced but cannot recall
   events already queued. Verified against the runtime rather than
