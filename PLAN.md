@@ -384,6 +384,109 @@ session design:
   not that the fence status was received; there is no delivery receipt
   in the protocol.
 
+## Event delivery results (increment 9, done 2026-08-16)
+
+Opened by vientito issue #12: sequential server-streaming calls on a
+shared client intermittently never starting, 1-7 failures in 30 against
+a live containerd. The reported diagnosis was wrong, and the way it was
+wrong is the more useful finding.
+
+- **The calls always started; `grpc_poll` was waking spuriously.** The
+  eventfd carries one signal per event, but the counter was drained
+  outside the mutex guarding the ready deque, so every signal posted
+  between the drain and the batch take stayed counted even though the
+  batch took those events. The leftover became a credit the next poll
+  spent as an instant empty wake-up. Instrumented pre-fix run against
+  an external peer: descriptor readable, nine stale signals in the
+  counter, empty deque, and a 3000ms poll returning in **0ms**. Drain
+  and re-arm now happen under that mutex, so the descriptor is readable
+  exactly while events are queued. `grpc_r_server2_poll` had it too.
+- **The tell was in the original measurements and nobody read it.**
+  Three of the four reported observations (rate scaling with the
+  previous stream's size, fresh-client fixing it, explicit drain fixing
+  it) are equally consistent with either mechanism. Only timing the
+  poll separates them, and an empty batch returning in 0ms against a
+  3000ms timeout is not a timeout. Downstream confirmation: on the
+  **pre-fix** build a loop that keeps polling instead of quitting on an
+  empty batch fails 0/150, versus 21/150 for the loop that treats empty
+  as terminal. Post-fix, 0/600 both ways.
+- **Reproducing it needed a separate process.** The in-process loopback
+  never reproduces, because R drives both sides sequentially and the
+  events are always already queued when the poll runs. The regression
+  test forces the interleave instead of waiting for it, and asserts the
+  invariant an empty poll must satisfy: that it waited out its timeout.
+  Catches the bug 6/6 pre-fix, cannot false-alarm post-fix.
+- **A second, caller-side hazard surfaced underneath it.** One queue
+  serves the whole client, so an abandoned stream's queued messages
+  keep arriving alongside later calls. Payload-tagged probe over 40
+  rounds of a deliberately abandoned stream: **0** events whose id
+  disagreed with their payload, **0** wrong lengths, but **298**
+  abandoned-stream messages delivered during the next stream, and an
+  accumulator ignoring `id` got the wrong byte count **36/40** (0/40
+  filtering on `id`). The runtime is correct; the contract was simply
+  never written down. `grpc_cancel()` bounds the leak (298 to 57)
+  rather than stopping it, since cancellation cannot recall queued
+  events — so the docs say bounds, not stops.
+- **Downstream found the same mistake in five places, three of them
+  unary** (`events[[1L]]` taken as the answer to the call just
+  started). Both shapes are one assumption — one queue per call — and
+  neither holds: a batch mixes every call in flight, in completion
+  order rather than start order.
+- **The package's own documentation taught it.** The README's
+  round-trip and typed-call examples and `inst/examples/cri-list-pods.R`
+  all indexed a poll batch as `evs[[1]]`, the last through a
+  hand-rolled `drain()` helper returning the first event of whatever
+  arrived. Correct only while nothing else is in flight, which is
+  exactly how a caller infers the wrong model. Recorded as a root
+  cause, not as downstream carelessness.
+
+## Per-call waiting: grpc_await (increment 10, done 2026-08-16)
+
+The demultiplexing gap the above kept exposing. Checked against the
+reference implementations rather than assumed: Python never exposes a
+completion queue — `__call__()` returns the response, `.future()` a
+per-call Call/Future, server streaming a response iterator — and Go,
+Java and Node are the same shape. The shared queue belongs to the
+C-core and C++ async API this package wraps, whose own docs describe
+the callback replacement as "easier to use". We exposed the hardest API
+in the family raw and left the demux to every caller.
+
+- **The filter lives in C over the existing ready deque, not an R-side
+  buffer.** The deque is already the buffer, so ordering is preserved
+  for free and `grpc_fd()` stays correct because the increment-9 re-arm
+  already signals whenever anything is left queued. An R stash would
+  have rebuilt increment 9's descriptor hazard one layer up: await
+  stashes events, returns, the event loop waits on the fd and sleeps
+  with work pending.
+- **The wait must be filter-aware.** It cannot lean on the eventfd,
+  because another call's queued events keep the descriptor readable and
+  `poll()` returns instantly forever. Draining before each wait makes
+  it mean "a completion arrived since I last looked"; the readable-iff-
+  queued invariant is restored before returning, and no other thread
+  reads it in between. Verified by building the naive variant that
+  waits on "anything queued": it fails exactly the spin assertion and
+  passes the other 68.
+- **`timeout_ms` is required, and expiry is resumable.** An expired
+  await leaves the call exactly as it was — `timeout_ms = 1` returns
+  empty in 0ms, awaiting the same call then returns its completion with
+  status OK. That is what keeps a required timeout from being increment
+  9's empty-batch trap in new clothing, so it is documented and pinned
+  by a test rather than left implicit.
+- **The fix for one documentation trap introduced another.** Replacing
+  `evs[[1]]` with `grpc_await(call, timeout_ms = 5000)[[1]]` raises
+  `subscript out of bounds` on expiry, which reads like a caller bug
+  and gives no hint that waiting longer would have worked. Examples now
+  check the batch before indexing, and both runnable README examples
+  are executed with their documented outputs asserted so this cannot
+  rot again. Distinguishing expiry at the type level was considered and
+  declined: `NULL` for unary makes `ev$status_name` silently `NULL`,
+  and erroring on timeout breaks the loop idiom streams need.
+- **The sanitizer gate caught a test bug the native runs passed by
+  luck.** `test_await.R` originally answered whichever request happened
+  to be queued first, which only fails once the machine is slow enough
+  for an unrelated call's request to arrive first; valgrind found it.
+  It matches on a marker byte now.
+
 ## Verification
 
 - Interoperate with official C++, Go, and Python gRPC implementations
@@ -540,6 +643,26 @@ new surfaces with `.proto` contracts, not a retrofit.
   target). Decide before the first push.
 - Generic dynamic API only versus optional generated R conveniences.
 - Strict handling of unknown fields versus normal protobuf evolution.
+- **Server-side per-call waiting.** `grpc_await()` closed the demux gap
+  on the client, but `grpc_poll(server)` still hands back one queue for
+  every call in flight, so a server driving concurrent streaming calls
+  hand-rolls the `id` dispatch that downstream got wrong five times.
+  The shape differs: a `grpc_request` arrives *from* poll rather than
+  being created by the caller, so there is nothing to await until one
+  has been received, and the useful scope is a request's subsequent
+  `stream_msg`/`client_done` events. Documented hazard, unshipped
+  remedy — the asymmetry is the argument for closing it.
+- **A one-call-one-answer convenience.** Both the CRI example and the
+  guarded unary idiom want "block until this call answers"; the example
+  grew an `await1()` helper to say it. Against: a helper that hides the
+  loop also hides the `deadline_ms` relationship that makes the loop
+  terminate. Whatever is decided should probably have a server twin.
+- **`grpc_poll`/`grpc_await` and EINTR.** An interrupted `poll()`
+  returns an empty batch, so "empty means the wait expired" is
+  narrowly untrue. Left alone deliberately: returning early is what
+  lets R process the interrupt, and retrying would swallow a Ctrl-C for
+  the whole timeout. It matters more now that the sentence is a
+  documented contract.
 
 Resolved: static versus system linking (system only; see platform
 commitment), distribution channel (drat plus apt/Docker; no r-universe),
