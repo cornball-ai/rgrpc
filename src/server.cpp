@@ -553,33 +553,71 @@ extern "C" SEXP grpc_r_server2_finish(SEXP xp, SEXP id, SEXP status,
     return Rf_ScalarLogical(TRUE);
 }
 
-// args: server, max_events (int), timeout_ms (int)
-extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms) {
+// args: server, max_events (int), timeout_ms (int), only_id (real or NULL)
+//
+// The only_id filter mirrors grpc_r_client_poll: events for other calls
+// are stepped over and left in `ready` in arrival order, and the wait is
+// satisfied only by a matching event. See that function for why the
+// wait cannot lean on the descriptor staying readable.
+extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
+                                    SEXP only_id) {
     rserver *s = get_server(xp);
     const int maxn = Rf_asInteger(max_events);
     const int timeout = Rf_asInteger(timeout_ms);
-
-    {
-        std::unique_lock<std::mutex> lock(s->mu);
-        const bool empty = s->ready.empty();
-        lock.unlock();
-        if (empty && timeout != 0) {
-            struct pollfd pfd = {s->event_fd, POLLIN, 0};
-            poll(&pfd, 1, timeout);
-        }
-    }
+    const bool filtered = only_id != R_NilValue;
+    const uint64_t want = filtered ? (uint64_t) Rf_asReal(only_id) : 0;
 
     std::vector<sv_event> batch;
     {
-        std::lock_guard<std::mutex> lock(s->mu);
+        std::unique_lock<std::mutex> lock(s->mu);
+
+        auto matches = [&](const sv_event &ev) {
+            return !filtered || ev.id == want;
+        };
+        auto have_match = [&]() {
+            for (const auto &ev : s->ready)
+                if (matches(ev)) return true;
+            return false;
+        };
+
+        if (timeout != 0) {
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(timeout < 0 ? 0 : timeout);
+            while (!have_match()) {
+                uint64_t drained;
+                while (read(s->event_fd, &drained, sizeof drained) > 0) {
+                }
+                int wait_ms = -1;
+                if (timeout > 0) {
+                    const auto left = std::chrono::duration_cast<
+                        std::chrono::milliseconds>(
+                            deadline - std::chrono::steady_clock::now())
+                                          .count();
+                    if (left <= 0) break;
+                    wait_ms = (int) left;
+                }
+                struct pollfd pfd = {s->event_fd, POLLIN, 0};
+                lock.unlock();
+                const int pr = poll(&pfd, 1, wait_ms);
+                lock.lock();
+                if (pr <= 0) break;
+            }
+        }
+
         // Drain and re-arm under the same lock that guards `ready`; see
         // grpc_r_client_poll for why the drain cannot sit outside it.
         uint64_t drained;
         while (read(s->event_fd, &drained, sizeof drained) > 0) {
         }
-        while (!s->ready.empty() && (int) batch.size() < maxn) {
-            batch.push_back(std::move(s->ready.front()));
-            s->ready.pop_front();
+        auto it = s->ready.begin();
+        while (it != s->ready.end() && (int) batch.size() < maxn) {
+            if (!matches(*it)) {
+                ++it;
+                continue;
+            }
+            batch.push_back(std::move(*it));
+            it = s->ready.erase(it);
         }
         if (!s->ready.empty()) s->signal();
     }

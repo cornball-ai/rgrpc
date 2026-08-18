@@ -154,7 +154,7 @@ extern "C" SEXP grpc_r_server2_fd(SEXP);
 extern "C" SEXP grpc_r_server2_port(SEXP);
 extern "C" SEXP grpc_r_server2_pending(SEXP);
 extern "C" SEXP grpc_r_server2_reply(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_server2_poll(SEXP, SEXP, SEXP);
+extern "C" SEXP grpc_r_server2_poll(SEXP, SEXP, SEXP, SEXP);
 extern "C" SEXP grpc_r_server2_read(SEXP, SEXP);
 extern "C" SEXP grpc_r_server2_cancel(SEXP, SEXP);
 extern "C" SEXP grpc_r_server2_send(SEXP, SEXP, SEXP);
@@ -183,7 +183,7 @@ static const R_CallMethodDef call_methods[] = {
     {"grpc_r_server2_port",    (DL_FUNC) &grpc_r_server2_port,    1},
     {"grpc_r_server2_pending", (DL_FUNC) &grpc_r_server2_pending, 1},
     {"grpc_r_server2_reply",   (DL_FUNC) &grpc_r_server2_reply,   6},
-    {"grpc_r_server2_poll",    (DL_FUNC) &grpc_r_server2_poll,    3},
+    {"grpc_r_server2_poll",    (DL_FUNC) &grpc_r_server2_poll,    4},
     {"grpc_r_stream_start",    (DL_FUNC) &grpc_r_stream_start,    7},
     {"grpc_r_stream_send",     (DL_FUNC) &grpc_r_stream_send,     3},
     {"grpc_r_stream_writes_done", (DL_FUNC) &grpc_r_stream_writes_done, 2},

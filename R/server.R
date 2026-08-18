@@ -235,17 +235,32 @@ grpc_cancel.grpc_request <- function(x) {
     invisible(.Call(grpc_r_server2_cancel, x$server$ptr, x$id))
 }
 
-#' @export
-grpc_poll.grpc_server <- function(x, max_events = 64L, timeout_ms = 0L) {
-    events <- .Call(grpc_r_server2_poll, x$ptr, as.integer(max_events),
-                    as.integer(timeout_ms))
+## Attach the server and tag request events so they can be replied to.
+## Shared by grpc_poll() and grpc_await() so both deliver identical
+## events.
+decorate_server_events <- function(server, events) {
     lapply(events, function(ev) {
         if (ev$type == "request") {
-            ev$server <- x
+            ev$server <- server
             class(ev) <- "grpc_request"
         }
         ev
     })
+}
+
+#' @export
+grpc_poll.grpc_server <- function(x, max_events = 64L, timeout_ms = 0L) {
+    decorate_server_events(x, .Call(grpc_r_server2_poll, x$ptr,
+                                    as.integer(max_events),
+                                    as.integer(timeout_ms), NULL))
+}
+
+#' @export
+grpc_await.grpc_request <- function(x, timeout_ms, max_events = 64L) {
+    check_await_args(timeout_ms, max_events)
+    decorate_server_events(x$server,
+                           .Call(grpc_r_server2_poll, x$server$ptr, as.integer(max_events),
+                                 as.integer(timeout_ms), as.numeric(x$id)))
 }
 
 #' @export

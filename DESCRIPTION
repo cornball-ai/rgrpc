@@ -1,7 +1,7 @@
 Package: grpc
 Type: Package
 Title: Asynchronous 'gRPC' Client and Server Runtime
-Version: 0.0.1.11
+Version: 0.0.1.12
 Date: 2026-08-14
 Authors@R: c(
     person("Troy", "Hernandez", role = c("aut", "cre"), email = "troy@cornball.ai",

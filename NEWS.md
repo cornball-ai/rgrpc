@@ -1,3 +1,22 @@
+# grpc 0.0.1.12
+
+- `grpc_await()` now works on a server `"grpc_request"` too, closing the
+  asymmetry 0.0.1.11 left behind: the docs said "one queue serves the
+  whole client *or server*" while the remedy shipped for the client
+  only, so a server driving concurrent streaming calls still hand-rolled
+  the `id` dispatch that had already gone wrong five times downstream.
+  A handler can drain one client-streaming call with
+  `grpc_await(req, timeout_ms)` and see nothing belonging to any other.
+- `grpc_await()` became an S3 generic to accommodate that third class.
+  Call sites are unaffected: the signature is unchanged and the existing
+  `"grpc_call"` and `"grpc_stream"` behaviour is identical.
+- On a server request the awaited events are the ones that follow the
+  request itself (`"stream_msg"`, `"client_done"`, `"stream_writable"`,
+  `"cancelled"`), since the request arrives from `grpc_poll()` in the
+  first place. A server call has no terminal event of its own -- it ends
+  when the handler ends it -- so `"client_done"` is what a
+  client-streaming handler loops to.
+
 # grpc 0.0.1.11
 
 - New `grpc_await(x, timeout_ms)`: waits for events belonging to one
