@@ -16,7 +16,7 @@ for event loops such as Viento's.
 
 The founding use case was southbound interop — containerd (CRI) and etcd
 speak gRPC and nothing else — proven live in increment 5. The package's
-first consumer is the vientote rebuild (see the split, below): a
+first consumer is the vientito rebuild (see the split, below): a
 gRPC-native orchestrator using this package for its control plane, its
 event-driven CRI container execution, and eventually its R executors.
 Beyond that: Triton, OTLP telemetry, gRPC-only cloud APIs, and the typed
@@ -176,7 +176,7 @@ verifies them cheaply instead of deciding them.
    - Explicit read/write readiness, half-close, cancellation, and bounded
      buffering.
    - Real-world target: CRI `GetContainerEvents` (server stream from
-     containerd), the call that makes vientote's container
+     containerd), the call that makes vientito's container
      execution event-driven instead of polling.
 
 7. **Operational surface**
@@ -351,11 +351,11 @@ Dirk contact remains gated on an explicit greenlight from Troy.
   `libprotobuf-dev` under `--no-install-recommends`; the configure hint
   and `SystemRequirements` now name both packages.
 
-## Vientote transport follow-up (done 2026-08-14)
+## Rebuild transport follow-up (done 2026-08-14)
 
-Green-lit by Troy after increments 6-8 merged; with it, the vientote
+Green-lit by Troy after increments 6-8 merged; with it, the rebuild's
 control-plane gate (streaming + mTLS + the binding 10s/5s keepalive
-contract) is complete. Three primitives, all driven by vientote's
+contract) is complete. Three primitives, all driven by vientito's
 session design:
 
 - **Keepalive**: `keepalive_ms`/`keepalive_timeout_ms` on both
@@ -693,7 +693,22 @@ own design pass rather than being settled here.
 - Record p50/p99 latency, saturation throughput, memory, CPU, connection
   count, and R event-loop delay.
 
-## The split: vientito and viento (decided 2026-08-14)
+## The split: the rebuild and the incumbent (decided 2026-08-14,
+## names settled 2026-08-18)
+
+**Naming, since this section originally said something else.** The
+rebuild was started as `vientote` and that attempt was abandoned: its
+build had absorbed too much of the nanonext-era viento design to be the
+clean-sheet gRPC-native codebase it was supposed to be. The rebuild is
+now **`vientito`**, which is the live package — `Imports: janssonr,
+secretbase, grpc, RProtoBuf`, no nanonext, increments landing. `viento`
+and `vientote` are parked names holding skeletons. Where this section
+below says vientito, it means the gRPC-native rebuild; the earlier
+reading, in which vientito was the frozen nanonext incumbent and
+vientote the rebuild, is dead. That reversal is why the old text is
+corrected rather than deleted: the two names were swapped relative to
+what was planned, which is exactly the kind of thing a stale document
+gets wrong silently.
 
 The control-plane candidacy is resolved by splitting instead of
 migrating. Every hedge the one-codebase path required — a
@@ -703,7 +718,7 @@ Imports/Suggests dance — was complexity spent making one codebase span
 two architectures. The split deletes all of it. Those hedges are
 rejected; do not reintroduce them.
 
-**vientito** (today's viento, renamed when grpc is ready):
+**The incumbent** (the nanonext phase-1 codebase):
 
 - Finishes phase 1 exactly as architected: nanonext control plane,
   strict-JSON wire, CLI engine adapters (podman/docker), mirai and
@@ -714,10 +729,8 @@ rejected; do not reintroduce them.
 - Its engine-adapter contract stays as-is; the fidelity question is
   moot for CLI adapters, which poll because that is what CLIs do.
 
-**vientote** (the gRPC-native rebuild; working name, decided
-2026-08-14 — the augmentative pairs with vientito and decouples the
-rebuild's start from the rename; whether it claims the bare `viento`
-name at 1.0 stays open and blocks nothing):
+**vientito** (the gRPC-native rebuild; whether it claims the bare
+`viento` name at 1.0 stays open and blocks nothing):
 
 - gRPC control plane from line one: bidirectional node-control streams,
   mTLS peer identity, deadlines as a primitive, protobuf `.proto`
@@ -731,7 +744,7 @@ name at 1.0 stays open and blocks nothing):
   later increment that retires it.
 - **Crown jewels are copied, not shared.** WAL, fold, events, states,
   fencing, canonical identity move over wholesale and diverge freely.
-  No shared core package; vientito's copies stand as-is. Semantics
+  No shared core package; the incumbent's copies stand as-is. Semantics
   preserved: WAL-before-ack, logical operation ids, boot/session
   fencing, delivery confirmation, reconciliation.
 - Design input before the control plane is drafted: mine the incumbents
@@ -752,20 +765,20 @@ name at 1.0 stays open and blocks nothing):
 
 Sequencing:
 
-1. vientito finishes phase 1 (g5 gpu_service objective) uninterrupted;
-   its live momentum is not stalled for the rebuild.
+1. The incumbent finishes phase 1 (g5 gpu_service objective)
+   uninterrupted; its live momentum is not stalled for the rebuild.
 2. grpc completes increments 6-8 (streaming, TLS/operational surface,
    packaging) — a control plane needs streams and mTLS before it can
    carry one.
-3. The rename (current repo -> vientito, one deliberate pass while
-   private: repo, unit names, config docs) happens when grpc is ready,
-   freeing the name.
-4. The vientote rebuild starts (its repo can exist any time; the
-   working name does not wait on the rename): crown-jewel copy, then
-   control plane, then CRI execution, then executors.
+3. ~~The rename (current repo -> vientito) happens when grpc is
+   ready.~~ Overtaken: the rebuild took the `vientito` name directly,
+   and no rename of the incumbent happened.
+4. The vientito rebuild starts: crown-jewel copy, then control plane,
+   then CRI execution, then executors. **Done** — steps 1-4 are
+   history; vientito is live and past increment 6.
 
 Rationale on record: gRPC is the industry-standard control-plane
-substrate for this class of system; vientote is instantly
+substrate for this class of system; vientito is instantly
 legible to that world and open to non-R agents via generated stubs.
 Dogfooding the rebuild is how grpc earns maturity, and grpc is also the
 planned typed/streaming channel between glinty's Flutter frontend and R
@@ -800,8 +813,8 @@ first question is a `.proto` contract for new surfaces, not re-encoding
 existing ones.
 
 This declines re-encoding the existing nanonext channel in place, and
-the split (below) makes it permanent: vientito keeps JSON-on-nanonext
-until retirement, and vientote is protobuf/gRPC by design —
+the split (below) makes it permanent: the incumbent keeps
+JSON-on-nanonext until retirement, and vientito is protobuf/gRPC by design —
 new surfaces with `.proto` contracts, not a retrofit.
 
 ## Non-goals
@@ -811,8 +824,9 @@ new surfaces with `.proto` contracts, not a retrofit.
 - Static vendoring of gRPC/abseil, or any Rust/tonic implementation
 - CRAN submission; Windows and macOS support (revisit only on real
   outside demand)
-- Retrofitting protobuf or gRPC onto vientito in place (the split
-  supersedes migration; see encoding decision and the split section)
+- Retrofitting protobuf or gRPC onto the nanonext incumbent in place
+  (the split supersedes migration; see encoding decision and the split
+  section)
 - Dual-transport machinery in either orchestrator: no transport-neutral
   adapter interface, no capability-flagged engine contracts
 - Putting Viento's WAL or domain policy into the transport package
@@ -820,8 +834,8 @@ new surfaces with `.proto` contracts, not a retrofit.
 - Guaranteeing fork safety after a channel is open (the failure mode is
   documented instead)
 - Beating nanonext on R-to-R latency
-- Starting the vientote rebuild before grpc has streaming and TLS
-  (increments 6-7), or stalling vientito's phase 1 for it
+- Starting the vientito rebuild before grpc has streaming and TLS
+  (increments 6-7), or stalling the incumbent's phase 1 for it
 
 ## Open decisions
 
@@ -859,6 +873,8 @@ commitment), distribution channel (drat plus apt/Docker; no r-universe),
 event-loop and promises/mirai integration (increment 2), Rust/tonic
 (dropped), protobuf-on-nanonext (declined; see encoding decision),
 license (Apache-2.0, matching gRPC; RProtoBuf is GPL (>= 2) per CRAN
-0.4.27, accepted as plumbing-level exposure), the vientito/vientote split
-(vientito finishes on nanonext and freezes; vientote is the gRPC-native
-rebuild, bare `viento` name parked — see the split section).
+0.4.27, accepted as plumbing-level exposure), the rebuild/incumbent split
+(the nanonext incumbent finishes phase 1 and freezes; **vientito** is the
+gRPC-native rebuild and this package's first consumer; the `vientote`
+attempt was abandoned for carrying too much nanonext-era design, and
+`viento`/`vientote` are parked names — see the split section).

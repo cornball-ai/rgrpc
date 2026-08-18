@@ -1,4 +1,4 @@
-## Keepalive configuration (vientote follow-up): channel args on both
+## Keepalive configuration (vientito follow-up): channel args on both
 ## sides. What the behavioral tests prove: client-originated pings
 ## reach the wire (a fast-pinging client is killed by a default
 ## server's too_many_pings policing and survives at a tolerant one —

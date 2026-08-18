@@ -1,4 +1,4 @@
-## Abortive close (fencing, vientote follow-up): grpc_finish(drain =
+## Abortive close (fencing, vientito follow-up): grpc_finish(drain =
 ## FALSE) discards queued writes and prioritizes the terminal status;
 ## grpc_cancel() on a request is the hard escalation past a peer that
 ## has stopped reading. The scenario is session replacement: stale
