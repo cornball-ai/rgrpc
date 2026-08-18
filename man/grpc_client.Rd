@@ -45,6 +45,35 @@ server default kills clients that ping more often than every 5
 minutes.
 
 }
+\section{Forking}{
+A client must not be used across a \code{fork()}. The background
+completion thread does not survive forking, so in the child there is
+nothing left to drain the completion queue: calls are posted and
+never complete. Worse, using an inherited client in the child also
+breaks it in the \emph{parent} — the parent's subsequent calls fail
+with \code{DEADLINE_EXCEEDED}. Setting
+\code{GRPC_ENABLE_FORK_SUPPORT=1} does not change any of this.
+
+This matters because \code{parallel::mclapply} and much of the mirai
+ecosystem fork. Measured behaviour (\code{tools/fork-probe.sh}):
+
+\itemize{
+  \item Child uses the parent's client: the call never completes. A
+    wait with a timeout returns empty; a wait without one does not
+    return. Set \code{deadline_ms} and you get
+    \code{DEADLINE_EXCEEDED} instead of a hang.
+  \item Parent afterwards: broken, \code{DEADLINE_EXCEEDED}.
+  \item Forking alone, with the child never touching the client:
+    harmless, the parent keeps working.
+  \item Child opens its \emph{own} client after the fork: works
+    normally.
+}
+
+So the rule is to open the client after forking, once per process,
+and never to let a forked worker inherit one. Fork safety is a
+non-goal; this is documented behaviour, not a defect to be fixed.
+
+}
 \examples{
 \dontrun{
 client <- grpc_client("localhost:50051")
