@@ -605,6 +605,58 @@ keying per-stream counts on the id alone silently double-counted one
 stream and zeroed another while reporting a plausible total. Fixed
 before any number above was taken.
 
+## Cross-implementation interop (done 2026-08-18)
+
+The claim that pinning to distro gRPC 1.51.1 costs nothing on the wire,
+tested rather than asserted. Gate at `tools/interop/interop.sh`, four
+legs, all passing, whole run 6s.
+
+| leg | checks |
+|---|---|
+| R client → Python server | 9 |
+| Python client → R server | 7 |
+| R client → C++ server | 9 |
+| C++ client → R server | 13 |
+
+- **Both directions, deliberately.** A client-only test proves half the
+  claim. Our server answering a foreign client is the half that matters
+  for vientito's node-control streams, since the peers there will not
+  all be R.
+- **The contract is not a string echo.** `interop.proto` carries a
+  nested message, a repeated field, a proto3 map and a oneof, because
+  those are where implementations diverge. The map earned its place: a
+  proto3 map is repeated entry messages on the wire, RProtoBuf exposes
+  it that way, and Python shows a dict — the Python client asserting
+  `{'k': 'v'}` against what the R server built out of
+  `EchoReply.LabelsEntry` objects is a real encoding check, not a
+  formality.
+- **Map entry types are per-field and not interchangeable.** Echoing a
+  request's labels into a reply fails: `EchoRequest.LabelsEntry` and
+  `EchoReply.LabelsEntry` are distinct generated types despite identical
+  wire form, and RProtoBuf enforces it. Rebuild entries when copying
+  between messages. Worth knowing before it appears as a puzzling error
+  in application code.
+- **Each reply names its responder**, so a leg cannot pass by
+  accidentally talking to itself. Verified by pointing the R client at
+  the Python server while expecting `cpp`: it fails, as it should.
+- **Status and message propagate intact** in every direction, including
+  `FAILED_PRECONDITION` with a detail string.
+- **Go is covered by `inst/tinytest/test_cri.R`,** which talks to real
+  containerd. A purpose-built Go echo peer would prove less than the
+  production server already does, so the gate does not ship one.
+- **The C++ peers use the generic API**, because `libgrpc++-dev` ships
+  no `grpc_cpp_plugin` — the one genuinely broken piece of noble's gRPC
+  packaging, and the piece the platform commitment already says this
+  package never needs. That is a codegen difference, not a wire
+  difference: a generated stub wraps the same core, and the payloads
+  still come from protoc-generated message classes. Python does use
+  ordinary generated stubs, so the generated-stub path is covered on
+  that side.
+- **A missing toolchain fails the run rather than skipping quietly.**
+  An absent `uv` or `protoc` reports `LEG SKIP` and exits nonzero,
+  because "we could not test interop" must never render as "interop
+  works".
+
 ## Flow control and what a refused send means (done 2026-08-18)
 
 Follow-up to the soak, run because the 4.4 MB figure above was quoted
@@ -677,9 +729,9 @@ own design pass rather than being settled here.
 
 ## Verification
 
-- Interoperate with official C++, Go, and Python gRPC implementations
-  (this is the proof that pinning to distro 1.51.1 costs nothing on the
-  wire).
+- ~~Interoperate with official C++, Go, and Python gRPC
+  implementations.~~ **Done 2026-08-18**, see the interop section. Gate
+  at `tools/interop/interop.sh`.
 - Test malformed frames, cancellation races, deadline races, peer loss,
   server shutdown, and completion after R object collection.
 - Assert every external pointer has one owner and one terminal transition.
