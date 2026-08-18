@@ -515,6 +515,68 @@ times downstream.
   posted on the second call there is nothing for the filter to step
   over, and the scoping assertion passes trivially.
 
+## Fan-out soak results (increment 12, done 2026-08-18)
+
+Run to replace estimates with numbers before a room/event-log service
+design hardened on top of them. Recipe committed as
+`tools/soak-fanout.sh`; reference environment is this machine over a
+unix socket, 49 subscribers draining continuously plus one that never
+drains, streams held open. It refuted two of the three things the
+estimate had claimed.
+
+- **Fan-out is linear in subscribers and the cost is per send.** Sends
+  run at a flat ~135,000/sec regardless of room size — 138k at 50
+  subscribers, 134k at 100, 138k at 200 — so the R loop costs about 7.3
+  microseconds per `grpc_send()` and a room's event rate is simply
+  135,000/N: ~2,700/sec at 50 subscribers, ~1,335 at 100, ~690 at 200.
+  At 200 subscribers, 200,000 sends completed with zero refusals, every
+  subscriber received all 1,000 events, and per-subscriber spread was 0.
+  Nothing degraded across the range.
+- **`write_cap = 16` is not the binding constraint.** A subscriber that
+  never reads absorbs roughly **4.4 MB** before the server sees a single
+  refusal; 2 MB of 1KB events produced no refusal at all in 3/3 runs.
+  What backs up first is the HTTP/2 flow-control window, which gRPC
+  auto-tunes large on a fast local transport. Budget bytes per
+  subscriber, not messages — and note a stuck subscriber is invisible
+  for megabytes, so detection is inherently delayed.
+- **A refused send is not a verdict that a subscriber is stuck.** At
+  16KB events it is: 724 refusals, every one of them the non-draining
+  subscriber, zero across the 49 healthy ones. At 64KB the system
+  saturates and **all 49 healthy subscribers refuse too** (10,770
+  refusals). The estimate had assumed the 16KB behaviour held
+  generally.
+- **So fence-on-first-refusal is correct in one regime and destroys the
+  room in the other.** At 16KB it dropped exactly the right subscriber
+  and the other 49 received everything. At 64KB it fenced all 49 healthy
+  subscribers, `alive=0`, and delivery collapsed from 400 events each to
+  27. Reproduced.
+- **Fencing on sustained refusal fixes it, but the threshold is not a
+  constant.** Counting consecutive refusals and fencing at K, at 64KB
+  over 3 reps each: K=20 catches the stuck subscriber every time but
+  false-fences healthy ones in 1 run of 3 (8 of them at once); K=100 is
+  clean on both counts 3/3; K=400 never fires at all and misses the
+  stuck subscriber entirely, because a 400-event run cannot accumulate
+  400 consecutive refusals. The usable window depends on event rate and
+  run length, which is the argument for expressing the threshold in
+  **wall-clock time spent continuously refusing** rather than a count of
+  refusals. A single run at K=20 looked clean and was reported that way
+  before the reps were done; it was under-sampled.
+- **`accept_window` needs no raising.** 200 subscribers connecting as
+  fast as one process can open them were accepted in 115ms at the
+  default 8 and 116ms at 64. The estimate had recommended raising it for
+  reconnect storms; there is no evidence for that.
+
+Caveats, so the numbers are not over-read: one machine over a unix
+socket, which is where the flow-control window is largest and the 4.4 MB
+figure most generous — over a real network a stuck subscriber is
+detected sooner. The consumer side was a single R process draining 49
+streams, which is why 64KB saturates; a deployment with one adapter per
+room will put the saturation point elsewhere. And the harness itself had
+a bug worth recording: stream ids are per-client and restart at 1, so
+keying per-stream counts on the id alone silently double-counted one
+stream and zeroed another while reporting a plausible total. Fixed
+before any number above was taken.
+
 ## Verification
 
 - Interoperate with official C++, Go, and Python gRPC implementations
