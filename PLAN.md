@@ -53,6 +53,22 @@ Windows binaries, neither of which is a goal).
   noble's gRPC packaging is a piece this package never touches.
 - **Distribution: drat plus apt-based Docker images.** CRAN is not a
   target. No r-universe.
+- **Minimum R is 4.3.0, matching noble's own R** (checked 2026-08-18,
+  recipe at `tools/r-floor/check.sh`). The package previously declared
+  `R (>= 4.4.0)`, which arrived with the pkgKitten skeleton in the first
+  commit and was never a decision. Nothing in the package needs it: the
+  newest base function used anywhere in `R/` is `get0()` (R 3.2), there
+  is no `%||%`, no native pipe, no lambda shorthand, and no version-gated
+  C-level API. Noble ships R 4.3.3 while r2u tracks current R, so both
+  are in the wild on the same distro — which is why the wrong floor
+  surfaced as an *intermittent* CI failure (`this R is version 4.3.3,
+  package 'grpc' requires R >= 4.4.0`) on runners that happened to get
+  the distro R, passing on the ones that did not. Verified empirically
+  rather than by inspection: noble's R against noble's libgrpc++,
+  installs clean and all 859 tests pass. Not lowered further, because
+  older distros carry a different libgrpc++ ABI that the platform
+  commitment does not cover, so a lower number would be a claim with
+  nothing behind it.
 
 ## Ownership boundary
 
