@@ -621,6 +621,86 @@ keying per-stream counts on the id alone silently double-counted one
 stream and zeroed another while reporting a plausible total. Fixed
 before any number above was taken.
 
+## Benchmark results (done 2026-08-18)
+
+Against nanonext (the incumbent) and against a Go gRPC server (the
+reference). Recipe at `tools/bench/bench.sh`; loopback unix socket, 3
+repetitions, medians below, 3000 sequential round trips for latency and
+20000 pipelined messages for throughput.
+
+Three rows, and the distinction matters:
+
+- **r-to-r** — our client and our server, R at both ends. The row to
+  compare against nanonext, because it is the shape vientito runs.
+- **nanonext** — R client, R server, same payloads, same statistics,
+  same timer. req/rep for latency, pair for throughput.
+- **r-to-go** — our client against a Go server that is not the
+  bottleneck. Not comparable to the other two; it isolates what our
+  client costs when the peer is fast.
+
+Unary latency, sequential, one outstanding (ms):
+
+| size | | r-to-r | nanonext | r-to-go |
+|---|---|---|---|---|
+| 256B | p50 | 0.061 | **0.027** | 0.040 |
+| 256B | p99 | **0.676** | 0.690 | 0.304 |
+| 4KB | p50 | 0.062 | **0.034** | 0.045 |
+| 4KB | p99 | **0.636** | 0.738 | 0.331 |
+| 64KB | p50 | **0.201** | 0.422 | 0.107 |
+| 64KB | p99 | **0.834** | 0.913 | 0.495 |
+
+Streaming throughput, pipelined (messages/sec, and MB/sec):
+
+| size | r-to-r | nanonext | r-to-go |
+|---|---|---|---|
+| 256B | 31,449 (7.7) | **45,629 (11.1)** | 92,559 (22.6) |
+| 4KB | 31,615 (124) | **62,093 (243)** | 78,451 (306) |
+| 64KB | **18,663 (1166)** | 10,872 (679) | 28,752 (1797) |
+
+- **Neither transport dominates, and the crossover is message size.**
+  nanonext has roughly half the median latency for small messages and
+  1.5–2x the small-message streaming throughput. gRPC wins at 64KB on
+  both, by about 2x on latency and 1.7x on throughput. For a control
+  plane carrying small messages nanonext is faster; for anything
+  shipping payloads gRPC is.
+- **Tail latency is a tie, which is the surprise.** nanonext's p50
+  advantage at 256B does not survive into p99: 0.690 against 0.676. The
+  median is where it wins; the tail is where a control plane lives.
+- **gRPC is much more repeatable.** Across 3 runs `r-to-r` streaming
+  varied 31,239–32,781 msgs/sec (5%) and `r-to-go` under 5%, while
+  nanonext varied 32,301–53,515 at 256B (66%) and 6,658–19,588 at 64KB
+  (3x). A single run of either transport is not a measurement: an
+  earlier one-shot run put nanonext's 4KB p50 at 0.399ms, and three reps
+  put it at 0.033–0.036ms. That first figure was noise presented as a
+  finding, which is the same mistake as the K=20 fencing result.
+- **The R server is the throughput bottleneck, not gRPC.** `r-to-go`
+  reaches 92,559 msgs/sec at 256B where `r-to-r` reaches 31,449 — same
+  client, same transport, 3x apart. What differs is whether an R poll
+  loop is doing the echoing. That is the thing to attack if vientito
+  ever needs more, and it is not in this package.
+- **What this does not settle.** Memory, CPU, connection count and R
+  event-loop delay are unmeasured. Everything here is a loopback unix
+  socket, so latency is a floor and throughput a ceiling, and a real
+  network moves the two transports differently — gRPC carries HTTP/2
+  framing and flow control that cost more locally and earn more over a
+  link with real latency. No transport decision should rest on this
+  section alone.
+
+Two measurement bugs are worth recording, because both produced a
+plausible number rather than an error. `proc.time()` is quantised to 1ms
+on Linux, so the first latency runs reported p50 = 0.000 and p99 = 1.000
+for a 50µs round trip — a histogram made entirely of rounding; both
+clients use `Sys.time()` now. And a blocking receive in the nanonext
+drain loop charged the benchmark its own timeout once per burst, turning
+70,000 msgs/sec into a confidently reported 308. The elapsed time was
+exactly `(n / burst) * block`, which is the tell.
+
+The benchmark's own echo server also had to learn the lesson from the
+flow control section below: it ignored `grpc_send()` returning FALSE,
+silently dropped messages once the write queue filled at 64KB, and the
+run failed as `DEADLINE_EXCEEDED` with nothing to say why. It holds and
+retries the refused payload now.
+
 ## Cross-implementation interop (done 2026-08-18)
 
 The claim that pinning to distro gRPC 1.51.1 costs nothing on the wire,
@@ -793,10 +873,13 @@ own design pass rather than being settled here.
 - ~~**Fork safety.**~~ **Done 2026-08-18**, see the fork safety section.
   Measured, documented in `?grpc_client`, recipe at
   `tools/fork-probe.sh`.
-- Benchmark unary and bidirectional streaming against Go and against
-  nanonext for Viento-shaped messages.
+- ~~Benchmark unary and bidirectional streaming against Go and against
+  nanonext for Viento-shaped messages.~~ **Done 2026-08-18**, see the
+  benchmark section. Recipe at `tools/bench/bench.sh`.
 - Record p50/p99 latency, saturation throughput, memory, CPU, connection
-  count, and R event-loop delay.
+  count, and R event-loop delay. **Partly done**: latency and throughput
+  are measured. Memory, CPU, connection count and event-loop delay are
+  not, and should not be assumed from the numbers that are.
 
 ## The split: vientito and viento (decided 2026-08-14)
 
