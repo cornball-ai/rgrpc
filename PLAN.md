@@ -556,11 +556,27 @@ estimate had claimed.
   false-fences healthy ones in 1 run of 3 (8 of them at once); K=100 is
   clean on both counts 3/3; K=400 never fires at all and misses the
   stuck subscriber entirely, because a 400-event run cannot accumulate
-  400 consecutive refusals. The usable window depends on event rate and
-  run length, which is the argument for expressing the threshold in
-  **wall-clock time spent continuously refusing** rather than a count of
-  refusals. A single run at K=20 looked clean and was reported that way
-  before the reps were done; it was under-sampled.
+  400 consecutive refusals. A single run at K=20 looked clean and was
+  reported that way before the reps were done; it was under-sampled.
+- **A wall-clock threshold is the right unit, and this was measured
+  rather than inferred.** The first version of this section recommended
+  it off the K=400 failure without testing it, which was the same
+  mistake in a different place. Tested: fencing a subscriber that has
+  been continuously refusing for T=500ms fences exactly the stuck one,
+  zero false positives, 3/3 at each of two rates — 176 events/sec (5ms
+  per round) and 48 events/sec (20ms per round). The demonstration that
+  the unit matters is the streak length at the moment it fired: the same
+  500ms was **~90 consecutive refusals at the fast rate and ~25 at the
+  slow one**. A refusal count has to be retuned for every event rate; a
+  duration does not.
+- **Neither unit is immune to being longer than the observation
+  window.** T=500ms fired for nobody at all — including the stuck
+  subscriber — in the undelayed runs, because a 400-event fan-out at
+  64KB completes in about 0.16s and a 1000-event one at 16KB in about
+  0.42s. That is exactly the K=400 failure wearing different clothes.
+  The general rule is that the threshold must be short relative to how
+  long the room is actually watched, and a duration only removes the
+  dependence on rate, not the dependence on window.
 - **`accept_window` needs no raising.** 200 subscribers connecting as
   fast as one process can open them were accepted in 115ms at the
   default 8 and 116ms at 64. The estimate had recommended raising it for

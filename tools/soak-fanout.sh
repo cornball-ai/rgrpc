@@ -5,8 +5,14 @@
 # results"). Run from the package root against an installed grpc.
 #
 #   tools/soak-fanout.sh <nfast> <nclients> <slow|noslow> \
-#                        <nevents> <size> <keep|fence|fenceK> \
-#                        <accept_window> [kfence]
+#                        <nevents> <size> <keep|fence|fenceK|fenceT> \
+#                        <accept_window> [kfence] [tfence_ms] [delay_ms]
+#
+# Policies: keep never drops; fence drops on one refused send; fenceK
+# drops after kfence consecutive refusals; fenceT drops after tfence_ms
+# of continuous refusing. delay_ms sleeps per round, to vary the event
+# rate without changing anything else -- the test of whether a threshold
+# needs retuning when the room speeds up or slows down.
 #
 # What the output means:
 #   sends_per_s          cost of the R fan-out loop; ~flat in subscriber
@@ -21,14 +27,22 @@
 #
 # Reference results (2026-08-18, this machine, unix socket, 49 fast + 1
 # non-draining subscriber) are in PLAN.md. The headline: `fence` on a
-# single refusal is correct at 16KB and empties the room at 64KB;
-# `fenceK` on sustained refusal is correct in both.
+# single refusal is correct at 16KB and empties the room at 64KB, since
+# under load healthy subscribers refuse too. `fenceT` on continuous
+# refusal is correct at both, and unlike `fenceK` does not need retuning
+# per event rate -- 500ms was ~90 consecutive refusals at 176 events/sec
+# and ~25 at 48 events/sec. Any threshold longer than the run itself
+# fires for nobody, which is how both K=400 and an undelayed T=500ms
+# miss the stuck subscriber entirely; use delay_ms to make the window
+# long enough to mean something.
 set -u
 
 SP="$(cd "$(dirname "$0")" && pwd)"
 if [ $# -lt 7 ]; then sed -n '2,30p' "$0"; exit 2; fi
 NFAST="$1"; NCLI="$2"; SLOW="$3"; NEV="$4"; SIZE="$5"; POLICY="$6"; AW="$7"
 KFENCE="${8:-20}"
+TFENCE="${9:-500}"
+DELAY="${10:-0}"
 
 WORK="${WORK:-$(mktemp -d)}"
 trap 'rm -rf "$WORK"' EXIT
@@ -36,7 +50,7 @@ trap 'rm -rf "$WORK"' EXIT
 if [ "$SLOW" = "slow" ]; then NSUB=$((NFAST + 1)); else NSUB="$NFAST"; fi
 SOCK="$WORK/room.sock"
 
-r "$SP/soak-server.R" "$SOCK" "$NSUB" "$NEV" "$SIZE" "$POLICY" "$AW" "$KFENCE" \
+r "$SP/soak-server.R" "$SOCK" "$NSUB" "$NEV" "$SIZE" "$POLICY" "$AW" "$KFENCE" "$TFENCE" "$DELAY" \
     > "$WORK/srv.out" 2>&1 &
 SRVPID=$!
 

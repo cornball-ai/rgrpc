@@ -10,9 +10,14 @@ sock   <- argv[[1L]]
 nsub   <- as.integer(argv[[2L]])
 nev    <- as.integer(argv[[3L]])
 size   <- as.integer(argv[[4L]])
-policy <- argv[[5L]]               # keep | fence | fenceK
+policy <- argv[[5L]]               # keep | fence | fenceK | fenceT
 aw     <- as.integer(argv[[6L]])
 kfence <- if (length(argv) >= 7L) as.integer(argv[[7L]]) else 20L
+tfence <- if (length(argv) >= 8L) as.numeric(argv[[8L]]) else 500  # ms
+## Per-round delay, to vary the event rate without changing anything
+## else: the point of a wall-clock threshold is that it should not need
+## retuning when the room speeds up or slows down.
+delay_ms <- if (length(argv) >= 9L) as.numeric(argv[[9L]]) else 0
 
 srv <- grpc_server(sprintf("unix:%s", sock), accept_window = aw,
                    max_active = 1024L)
@@ -48,6 +53,11 @@ refusals_by_sub <- integer(length(subs))
 ## right now", which under load is true of healthy subscribers too; only
 ## a subscriber that never recovers is actually stuck.
 consec <- integer(length(subs))
+## Wall-clock start of each subscriber's current refusal streak, and the
+## streak length at the moment a policy fired -- the latter is what shows
+## whether a refusal count could have stood in for elapsed time.
+refuse_since <- rep(NA_real_, length(subs))
+consec_at_fence <- integer(0)
 round_ms <- numeric(nev)
 
 t_fan0 <- proc.time()[["elapsed"]]
@@ -58,13 +68,19 @@ for (e in seq_len(nev)) {
         if (grpc_send(subs[[i]], payload)) {
             sent <- sent + 1L
             consec[i] <- 0L
+            refuse_since[i] <- NA_real_
         } else {
+            now <- proc.time()[["elapsed"]]
             refused <- refused + 1L
             refusals_by_sub[i] <- refusals_by_sub[i] + 1L
             consec[i] <- consec[i] + 1L
+            if (is.na(refuse_since[i])) refuse_since[i] <- now
             drop <- identical(policy, "fence") ||
-                (identical(policy, "fenceK") && consec[i] >= kfence)
+                (identical(policy, "fenceK") && consec[i] >= kfence) ||
+                (identical(policy, "fenceT") &&
+                     (now - refuse_since[i]) * 1000 >= tfence)
             if (drop) {
+                consec_at_fence <- c(consec_at_fence, consec[i])
                 ## Backpressure as a correctness-preserving move: drop the
                 ## subscriber, it reconnects from its cursor.
                 grpc_finish(subs[[i]], status = "ABORTED",
@@ -76,6 +92,7 @@ for (e in seq_len(nev)) {
     }
     ## Keep the event loop turning so write completions are processed.
     invisible(grpc_poll(srv, timeout_ms = 0L))
+    if (delay_ms > 0) Sys.sleep(delay_ms / 1000)
     round_ms[e] <- (proc.time()[["elapsed"]] - r0) * 1000
 }
 t_fan <- proc.time()[["elapsed"]] - t_fan0
@@ -93,6 +110,10 @@ cat(sprintf("RESULT refused_slow=%d refused_fast=%d fast_subs_refusing=%d\n",
             sum(refusals_by_sub[!is_slow] > 0L)))
 cat(sprintf("RESULT fenced_slow=%d fenced_fast=%d\n",
             sum(is_slow & !alive), sum(!is_slow & !alive)))
+cat(sprintf("RESULT tfence_ms=%.0f delay_ms=%.1f consec_at_fence=%s\n",
+            tfence, delay_ms,
+            if (length(consec_at_fence)) paste(consec_at_fence, collapse = ",")
+            else "none"))
 flush(stdout())
 
 t1 <- Sys.time()
