@@ -25,6 +25,19 @@
 #   spread_max_minus_min per-subscriber delivery skew; 0 means no
 #                        subscriber was starved relative to its peers
 #
+# Invocations that reproduce the recorded results:
+#   tools/soak-fanout.sh 50 5 noslow 2000 1024 keep 8
+#       baseline throughput, no slow consumer, no refusals expected
+#   tools/soak-fanout.sh 49 5 slow 400 65536 fence 8
+#       fence-on-first-refusal empties the room: alive=0
+#   tools/soak-fanout.sh 49 5 slow 400 65536 fenceT 8 20 500 5
+#       wall-clock fencing drops only the stuck one: fenced_fast=0
+#
+# A small run is not a smoke test of the fencing policies. Queues never
+# fill, nothing is refused, and every policy looks identical and correct.
+# If `refused=0` across the board, the run was too cheap to test anything
+# -- raise size, raise nevents, or add delay_ms until refusals appear.
+#
 # Reference results (2026-08-18, this machine, unix socket, 49 fast + 1
 # non-draining subscriber) are in PLAN.md. The headline: `fence` on a
 # single refusal is correct at 16KB and empties the room at 64KB, since
@@ -44,8 +57,16 @@ KFENCE="${8:-20}"
 TFENCE="${9:-500}"
 DELAY="${10:-0}"
 
-WORK="${WORK:-$(mktemp -d)}"
-trap 'rm -rf "$WORK"' EXIT
+## Only ever remove a directory this script created. sanitize.sh accepts
+## an inherited WORK and never deletes it; copying that half of the
+## convention while adding an `rm -rf "$WORK"` trap would make
+## `WORK=/somewhere/real tools/soak-fanout.sh ...` destroy that path.
+if [ -n "${WORK:-}" ]; then
+    mkdir -p "$WORK"
+else
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "$WORK"' EXIT
+fi
 
 if [ "$SLOW" = "slow" ]; then NSUB=$((NFAST + 1)); else NSUB="$NFAST"; fi
 SOCK="$WORK/room.sock"
