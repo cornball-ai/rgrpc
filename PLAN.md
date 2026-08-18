@@ -53,6 +53,22 @@ Windows binaries, neither of which is a goal).
   noble's gRPC packaging is a piece this package never touches.
 - **Distribution: drat plus apt-based Docker images.** CRAN is not a
   target. No r-universe.
+- **Minimum R is 4.3.0, matching noble's own R** (checked 2026-08-18,
+  recipe at `tools/r-floor/check.sh`). The package previously declared
+  `R (>= 4.4.0)`, which arrived with the pkgKitten skeleton in the first
+  commit and was never a decision. Nothing in the package needs it: the
+  newest base function used anywhere in `R/` is `get0()` (R 3.2), there
+  is no `%||%`, no native pipe, no lambda shorthand, and no version-gated
+  C-level API. Noble ships R 4.3.3 while r2u tracks current R, so both
+  are in the wild on the same distro — which is why the wrong floor
+  surfaced as an *intermittent* CI failure (`this R is version 4.3.3,
+  package 'grpc' requires R >= 4.4.0`) on runners that happened to get
+  the distro R, passing on the ones that did not. Verified empirically
+  rather than by inspection: noble's R against noble's libgrpc++,
+  installs clean and all 859 tests pass. Not lowered further, because
+  older distros carry a different libgrpc++ ABI that the platform
+  commitment does not cover, so a lower number would be a claim with
+  nothing behind it.
 
 ## Ownership boundary
 
@@ -685,6 +701,97 @@ silently dropped messages once the write queue filled at 64KB, and the
 run failed as `DEADLINE_EXCEEDED` with nothing to say why. It holds and
 retries the refused payload now.
 
+## Cross-implementation interop (done 2026-08-18)
+
+The claim that pinning to distro gRPC 1.51.1 costs nothing on the wire,
+tested rather than asserted. Gate at `tools/interop/interop.sh`, four
+legs, all passing, whole run 6s.
+
+| leg | checks |
+|---|---|
+| R client → Python server | 9 |
+| Python client → R server | 7 |
+| R client → C++ server | 9 |
+| C++ client → R server | 13 |
+
+- **Both directions, deliberately.** A client-only test proves half the
+  claim. Our server answering a foreign client is the half that matters
+  for vientito's node-control streams, since the peers there will not
+  all be R.
+- **The contract is not a string echo.** `interop.proto` carries a
+  nested message, a repeated field, a proto3 map and a oneof, because
+  those are where implementations diverge. The map earned its place: a
+  proto3 map is repeated entry messages on the wire, RProtoBuf exposes
+  it that way, and Python shows a dict — the Python client asserting
+  `{'k': 'v'}` against what the R server built out of
+  `EchoReply.LabelsEntry` objects is a real encoding check, not a
+  formality.
+- **Map entry types are per-field and not interchangeable.** Echoing a
+  request's labels into a reply fails: `EchoRequest.LabelsEntry` and
+  `EchoReply.LabelsEntry` are distinct generated types despite identical
+  wire form, and RProtoBuf enforces it. Rebuild entries when copying
+  between messages. Worth knowing before it appears as a puzzling error
+  in application code.
+- **Each reply names its responder**, so a leg cannot pass by
+  accidentally talking to itself. Verified by pointing the R client at
+  the Python server while expecting `cpp`: it fails, as it should.
+- **Status and message propagate intact** in every direction, including
+  `FAILED_PRECONDITION` with a detail string.
+- **Go is covered by `inst/tinytest/test_cri.R`,** which talks to real
+  containerd. A purpose-built Go echo peer would prove less than the
+  production server already does, so the gate does not ship one.
+- **The C++ peers use the generic API**, because `libgrpc++-dev` ships
+  no `grpc_cpp_plugin` — the one genuinely broken piece of noble's gRPC
+  packaging, and the piece the platform commitment already says this
+  package never needs. That is a codegen difference, not a wire
+  difference: a generated stub wraps the same core, and the payloads
+  still come from protoc-generated message classes. Python does use
+  ordinary generated stubs, so the generated-stub path is covered on
+  that side.
+- **A missing toolchain fails the run rather than skipping quietly.**
+  An absent `uv` or `protoc` reports `LEG SKIP` and exits nonzero,
+  because "we could not test interop" must never render as "interop
+  works".
+
+## Fork safety (done 2026-08-18)
+
+The plan asked for the observed failure mode to be written down rather
+than left as a mystery hang. Measured with `tools/fork-probe.sh`, four
+cases, each run with `GRPC_ENABLE_FORK_SUPPORT` unset and set to 1.
+
+| case | child | parent afterwards |
+|---|---|---|
+| child uses the parent's client | never completes | **`DEADLINE_EXCEEDED`** |
+| same, waiting 30s not 3s | hung, killed at 10s | **`DEADLINE_EXCEEDED`** |
+| child touches nothing | n/a | `OK` |
+| child opens its own client | `OK` | `OK` |
+
+- **The completion thread does not survive `fork()`,** so in the child
+  nothing drains the completion queue and calls are posted that can
+  never finish. This is the expected half.
+- **The unexpected half is that the child poisons the parent.** Merely
+  forking is harmless — the third row — but once the child touches the
+  inherited client, the parent's own subsequent calls fail. So the
+  damage is not contained to the worker, which is what makes this worth
+  a documented rule rather than a footnote.
+- **`GRPC_ENABLE_FORK_SUPPORT=1` changes nothing.** Identical results in
+  all four cases. It is the only knob upstream offers, and it does not
+  help here; recording the negative so nobody re-tries it.
+- **A deadline converts the hang into an error.** With `deadline_ms`
+  set, the child gets `DEADLINE_EXCEEDED`; without it, the wait does not
+  return. That is the difference between a diagnosable failure and a
+  wedged worker, and it is the practical advice.
+- **The workable rule is "open after forking".** The fourth row works
+  normally, so `mclapply` workers can each create their own client. The
+  documentation in `?grpc_client` says exactly this.
+
+Fork safety remains a non-goal: none of the above is a defect to fix, it
+is behaviour to know. The probe was itself an instrument that failed
+quietly first — `sprintf()` on a `NULL` status yields `character(0)` and
+`cat()` prints nothing, so the first run reported four blank verdicts
+that read as "nothing happened". Fixed, and the guard against a
+zero-length verdict is in the file.
+
 ## Flow control and what a refused send means (done 2026-08-18)
 
 Follow-up to the soak, run because the 4.4 MB figure above was quoted
@@ -757,17 +864,15 @@ own design pass rather than being settled here.
 
 ## Verification
 
-- Interoperate with official C++, Go, and Python gRPC implementations
-  (this is the proof that pinning to distro 1.51.1 costs nothing on the
-  wire).
+- ~~Interoperate with official C++, Go, and Python gRPC
+  implementations.~~ **Done 2026-08-18**, see the interop section. Gate
+  at `tools/interop/interop.sh`.
 - Test malformed frames, cancellation races, deadline races, peer loss,
   server shutdown, and completion after R object collection.
 - Assert every external pointer has one owner and one terminal transition.
-- **Fork safety.** R users fork constantly (`mclapply`, anything
-  mirai-adjacent), and gRPC's fork support is fragile even with
-  `GRPC_ENABLE_FORK_SUPPORT`. Test forking after a channel is open and
-  document the observed failure mode. A documented failure beats a
-  mystery hang; a guarantee is a non-goal.
+- ~~**Fork safety.**~~ **Done 2026-08-18**, see the fork safety section.
+  Measured, documented in `?grpc_client`, recipe at
+  `tools/fork-probe.sh`.
 - ~~Benchmark unary and bidirectional streaming against Go and against
   nanonext for Viento-shaped messages.~~ **Done 2026-08-18**, see the
   benchmark section. Recipe at `tools/bench/bench.sh`.
