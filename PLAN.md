@@ -539,16 +539,29 @@ estimate had claimed.
   `write_cap` is what the first refusal usually reports. Left struck
   through rather than deleted because the wrong number was circulated.
 - **A refused send is not a verdict that a subscriber is stuck.** At
-  16KB events it is: 724 refusals, every one of them the non-draining
-  subscriber, zero across the 49 healthy ones. At 64KB the system
-  saturates and **all 49 healthy subscribers refuse too** (10,770
-  refusals). The estimate had assumed the 16KB behaviour held
-  generally.
+  16KB events it happens to be: 724 refusals, every one of them the
+  non-draining subscriber, zero across the 49 healthy ones. At 64KB
+  **all 49 healthy subscribers refuse too** (10,770 refusals). The
+  estimate had assumed the 16KB behaviour held generally.
+  *Amended after the flow-control section below:* those 10,770 were
+  the server's own write queue filling, not the healthy subscribers
+  failing to keep up. Bigger messages take longer to write, so the
+  round-robin send loop outruns the one-write-in-flight pipeline that
+  16KB messages stayed ahead of; the subscribers were draining fine
+  throughout. Two things say so — the `fenceT` runs fenced none of them
+  despite streaks of 25–90 refusals, so no healthy streak reached
+  500ms, and the duration probe bounds a draining subscriber's refusal
+  episodes at under 10ms at any queue depth. Read the 16KB-versus-64KB
+  difference as a property of the send loop, not of the room.
 - **So fence-on-first-refusal is correct in one regime and destroys the
   room in the other.** At 16KB it dropped exactly the right subscriber
   and the other 49 received everything. At 64KB it fenced all 49 healthy
   subscribers, `alive=0`, and delivery collapsed from 400 events each to
-  27. Reproduced.
+  27. Reproduced. The conclusion is unchanged by the amendment above and
+  strengthened by it: the policy is not merely wrong at high load, it is
+  reading a signal that never carried the information it was being asked
+  for. A first refusal has no bearing on the subscriber at any message
+  size — 16KB simply hid that by not generating one.
 - **Fencing on sustained refusal fixes it, but the threshold is not a
   constant.** Counting consecutive refusals and fencing at K, at 64KB
   over 3 reps each: K=20 catches the stuck subscriber every time but
