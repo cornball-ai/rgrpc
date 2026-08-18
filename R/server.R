@@ -38,6 +38,14 @@
 #'   connection is declared dead.
 #' @param min_ping_interval_ms Minimum interval between client pings the
 #'   server tolerates without counting a ping strike.
+#'
+#' @section Forking:
+#' A server must not be used across a \code{fork()}, for the same reason
+#' a client must not: the completion thread does not survive forking.
+#' See the Forking section of \code{\link{grpc_client}}, which documents
+#' the measured behaviour. Create the server in the process that will
+#' serve it.
+#'
 #' @return An object of class \code{"grpc_server"}.
 #' @examples
 #' \dontrun{
