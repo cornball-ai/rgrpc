@@ -532,13 +532,12 @@ estimate had claimed.
   At 200 subscribers, 200,000 sends completed with zero refusals, every
   subscriber received all 1,000 events, and per-subscriber spread was 0.
   Nothing degraded across the range.
-- **`write_cap = 16` is not the binding constraint.** A subscriber that
-  never reads absorbs roughly **4.4 MB** before the server sees a single
-  refusal; 2 MB of 1KB events produced no refusal at all in 3/3 runs.
-  What backs up first is the HTTP/2 flow-control window, which gRPC
-  auto-tunes large on a fast local transport. Budget bytes per
-  subscriber, not messages — and note a stuck subscriber is invisible
-  for megabytes, so detection is inherently delayed.
+- ~~**`write_cap = 16` is not the binding constraint.** A subscriber
+  that never reads absorbs roughly **4.4 MB** before the server sees a
+  single refusal.~~ **Wrong on both counts; superseded by the flow
+  control section below.** The 4.4 MB was the mean of a race, and
+  `write_cap` is what the first refusal usually reports. Left struck
+  through rather than deleted because the wrong number was circulated.
 - **A refused send is not a verdict that a subscriber is stuck.** At
   16KB events it is: 724 refusals, every one of them the non-draining
   subscriber, zero across the 49 healthy ones. At 64KB the system
@@ -583,15 +582,85 @@ estimate had claimed.
   reconnect storms; there is no evidence for that.
 
 Caveats, so the numbers are not over-read: one machine over a unix
-socket, which is where the flow-control window is largest and the 4.4 MB
-figure most generous — over a real network a stuck subscriber is
-detected sooner. The consumer side was a single R process draining 49
+socket, which is where the flow-control window is largest and the
+absorbed-bytes figure most generous — over a real network a stuck
+subscriber is detected sooner. The consumer side was a single R process draining 49
 streams, which is why 64KB saturates; a deployment with one adapter per
 room will put the saturation point elsewhere. And the harness itself had
 a bug worth recording: stream ids are per-client and restart at 1, so
 keying per-stream counts on the id alone silently double-counted one
 stream and zeroed another while reporting a plausible total. Fixed
 before any number above was taken.
+
+## Flow control and what a refused send means (done 2026-08-18)
+
+Follow-up to the soak, run because the 4.4 MB figure above was quoted
+into a downstream design. It does not hold. Recipe committed as
+`tools/fc-probe.sh`.
+
+- **`grpc_send()` returning FALSE conflates two unrelated conditions.**
+  Only one write is in flight per call — `pump_locked` in
+  `src/server.cpp` returns early on `write_inflight` — with the 16-deep
+  `write_queue` in front of it. So a fast R loop fills the queue and is
+  refused while the peer is perfectly healthy, which is a completely
+  different event from the peer's flow-control window shutting. They are
+  indistinguishable at the call site.
+- **The 4.4 MB was the first of those, averaged over a race.** It
+  recorded the first refusal, and the first refusal is normally the
+  write queue at 16 messages. Pacing the send loop at 500µs moves first
+  refusal from message 16 to message 424, which is the actual ceiling —
+  same bytes, same peer, refusal point moved 25× by changing only the
+  send rate. Individual unpaced runs ranged from 0.02 MB to 6 MB for
+  identical configurations.
+- **Measured properly, the ceiling is reproducible to the byte.**
+  Retrying until nothing moves for 2s, at `read_buffer = 4`: 5.99 MB at
+  1KB (6,135 messages, identical across reps), 6.07 MB at 4KB, 6.30 MB
+  at 16KB, 7.3–8.1 MB at 64KB, 8.75–9.25 MB at 256KB. These are
+  observations of this transport and configuration, not a property of
+  gRPC: they move with the settle cutoff (a peer draining more slowly
+  than the cutoff reads as stalled), with the loopback unix socket, with
+  `read_buffer`, and with message size. The committed probe defaults to
+  `read_buffer = 64` and correspondingly reports about 7 MB at 16KB.
+  Re-measure rather than porting the number.
+- **It is BDP-tuned, so there is no fixed buffer to budget against.**
+  Under a throwaway diagnostic build (see below), disabling HTTP/2 BDP
+  probing collapsed the 16KB ceiling from 6.30 MB to 0.42 MB. The
+  auto-tuning is the reason the default is megabytes.
+- **`grpc.http2.lookahead_bytes` is already a no-op while BDP probing is
+  on.** Its header comment predicts this ("at some point we'd like to
+  auto-tune this, and this parameter will become a no-op"); it has
+  happened. With probing on, 1 MB lookahead still gave 6.30 MB. With
+  probing off it takes effect: 64KB → 0.42 MB, 1 MB → 1.36 MB. Bounding
+  the buffer needs both knobs, neither of which the package exposes.
+- **The ceiling fits `lookahead + write_cap × message_size + ~112 KB`.**
+  Predicted 4.36 MB for 16KB messages at 4 MB lookahead; measured
+  4.36 MB. So `write_cap` is not irrelevant to buffering after all: at
+  64KB messages its 16 slots are a megabyte on their own.
+- **Refusal *duration* separates the two causes by three orders of
+  magnitude, and this is the mechanism under the wall-clock fencing
+  recommendation.** A subscriber that drains continuously still refuses
+  often — 217 episodes across 4,000 sends at 64KB — but every episode
+  cleared, median 0ms, max 4ms, none over 10ms. Deepening the queue
+  changes how *often* they happen (223 episodes at `write_cap = 4`, 44
+  at 256) and never how long: no episode at any depth exceeded 10ms. The
+  stuck subscriber's refusal never cleared at all. T=500ms therefore has
+  roughly a 150× margin over the worst transient observed, and the
+  choice of T is not delicate.
+- **This also explains why counting consecutive refusals failed.** A
+  healthy stream generates hundreds of refusal episodes, and how many
+  sends fit inside a 0–4ms stall is exactly what changes when the room's
+  event rate changes. A count has to be retuned per rate because it is
+  measuring the send loop; a duration is measuring the peer.
+
+Reproducibility caveat: the BDP, lookahead and `write_cap` results
+required a throwaway diagnostic build, because the package exposes none
+of those channel args. `tools/fc-probe.sh` reproduces the ceiling and
+duration results from a clean checkout against the installed package,
+and its header records the patch needed for the rest. Whether to expose
+a bounded-window option on `grpc_client()` is deferred to an open
+decision — the throughput cost of a fixed window on a high-latency link
+is exactly what BDP probing exists to avoid, and that tradeoff wants its
+own design pass rather than being settled here.
 
 ## Verification
 
@@ -754,6 +823,17 @@ new surfaces with `.proto` contracts, not a retrofit.
   grew an `await1()` helper to say it. Against: a helper that hides the
   loop also hides the `deadline_ms` relationship that makes the loop
   terminate. Whatever is decided should probably have a server twin.
+- **A bounded receive window on `grpc_client()`.** Buffering before a
+  stuck subscriber is noticed is currently whatever gRPC's BDP tuning
+  decides — roughly 6–9 MB here, and not a constant. A `window_bytes`
+  argument setting `grpc.http2.bdp_probe = 0` plus
+  `grpc.http2.lookahead_bytes` would make it a number the caller picks.
+  Against: a fixed window caps throughput at `window / RTT`, which is
+  precisely what BDP probing exists to prevent, so the default must stay
+  as it is and the semantics on a high-latency link need thinking about
+  rather than a flag. Exposing the server's hardcoded `write_cap = 16`
+  belongs in the same pass, since it contributes `write_cap × message
+  size` to the same buffer. See the flow control section.
 - **`grpc_poll`/`grpc_await` and EINTR.** An interrupted `poll()`
   returns an empty batch, so "empty means the wait expired" is
   narrowly untrue. Left alone deliberately: returning early is what
