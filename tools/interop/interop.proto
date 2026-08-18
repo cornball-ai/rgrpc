@@ -1,0 +1,40 @@
+// Wire-interop contract, shared by the R, C++ and Python peers in this
+// directory. Deliberately exercises the parts where implementations
+// diverge in practice rather than a bare string echo: a nested message,
+// a repeated field, a map, and a oneof, all proto3.
+syntax = "proto3";
+
+package interop.v1;
+
+message Item {
+  string name = 1;
+  int64 count = 2;
+}
+
+message EchoRequest {
+  string text = 1;
+  repeated Item items = 2;
+  map<string, string> labels = 3;
+  oneof extra {
+    int32 number = 4;
+    bytes blob = 5;
+  }
+}
+
+message EchoReply {
+  string text = 1;
+  repeated Item items = 2;
+  map<string, string> labels = 3;
+  // Which implementation answered, so a test cannot pass by accidentally
+  // talking to itself.
+  string responder = 6;
+}
+
+service Interop {
+  // Returns the request's fields, with responder set.
+  rpc Echo(EchoRequest) returns (EchoReply);
+  // Emits count replies, for server-streaming interop.
+  rpc EchoStream(EchoRequest) returns (stream EchoReply);
+  // Always fails, so status-code and message propagation is covered.
+  rpc Fail(EchoRequest) returns (EchoReply);
+}
