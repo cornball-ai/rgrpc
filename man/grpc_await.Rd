@@ -59,14 +59,22 @@ and harmless; setting no deadline at all is what makes
 \code{timeout_ms = -1} an unbounded wait. A server sees the client's
 deadline as \code{deadline_ms} on the request event.
 
-An empty result means \code{timeout_ms} expired with nothing for this
-call. It is not a failure and not an answer: an expired await leaves
-the call exactly as it was, so await it again to keep waiting, and
-the worst an expiry costs is another trip round the loop. Because an
-empty result is possible, index the batch only after checking it --
+An empty result means the wait ended with nothing for this call. It
+is not a failure and not an answer: an empty await leaves the call
+exactly as it was, so await it again to keep waiting, and the worst
+it costs is another trip round the loop. Because an empty result is
+possible, index the batch only after checking it --
 \code{grpc_await(call, timeout_ms = 1000)[[1]]} raises \code{subscript
 out of bounds} on a slow peer, which reads like a bug in the caller
 rather than the timeout it is.
+
+Usually the wait ended because \code{timeout_ms} expired, but it also
+returns early when a signal interrupts it, so an empty result is not
+proof that \code{timeout_ms} of wall time passed. That early return is
+deliberate — it is what lets R process a Ctrl-C instead of ignoring it
+until the timeout runs out. It matters only if you are deriving
+elapsed time from the number of empty awaits; use a clock for
+deadlines, not a count.
 
 }
 \examples{

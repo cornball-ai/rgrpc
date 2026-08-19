@@ -1072,12 +1072,18 @@ new surfaces with `.proto` contracts, not a retrofit.
   rather than a flag. Exposing the server's hardcoded `write_cap = 16`
   belongs in the same pass, since it contributes `write_cap × message
   size` to the same buffer. See the flow control section.
-- **`grpc_poll`/`grpc_await` and EINTR.** An interrupted `poll()`
-  returns an empty batch, so "empty means the wait expired" is
-  narrowly untrue. Left alone deliberately: returning early is what
-  lets R process the interrupt, and retrying would swallow a Ctrl-C for
-  the whole timeout. It matters more now that the sentence is a
-  documented contract.
+- ~~**`grpc_poll`/`grpc_await` and EINTR.**~~ **Resolved 2026-08-19,
+  docs only.** The behaviour is right and stays: an interrupted `poll()`
+  returns early rather than restarting, because that is what lets R
+  process a Ctrl-C instead of ignoring it for the rest of the timeout
+  (`src/client.cpp`, `src/server.cpp`, `if (pr <= 0) break`). What was
+  wrong was the documented contract, which said an empty result means
+  the wait *expired*. Both help pages now say it means the wait *ended*,
+  and name the consequence that actually bites: an empty result is not
+  proof that `timeout_ms` of wall time passed, so a deadline built by
+  counting empty returns and multiplying under-counts silently. Use a
+  clock. Nothing changes for a caller who just loops until the terminal
+  event, which is the documented idiom anyway.
 
 Resolved: static versus system linking (system only; see platform
 commitment), distribution channel (drat plus apt/Docker; no r-universe),

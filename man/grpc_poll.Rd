@@ -34,12 +34,22 @@ For a \code{"grpc_server"}, each event is either an incoming request
 cancellation notice (\code{type = "cancelled"}, \code{id}) for a
 request the peer abandoned before it was answered.
 
-An empty result means the wait expired with nothing queued at that
+An empty result means the wait ended with nothing queued at that
 moment; it says nothing about outstanding work, which ends only when
 its terminal event is delivered (\code{"unary"} for a call,
 \code{"stream_status"} for a stream). Loop until that event rather
 than treating an empty batch as the end of a call;
 \code{\link{grpc_pending}} reports what is still in flight.
+
+An empty result does \emph{not} prove \code{timeout_ms} elapsed. The
+wait also returns early when a signal interrupts it, which is
+deliberate: handing control back to R is what lets an interrupt be
+processed, where restarting the wait would swallow a Ctrl-C for the
+rest of the timeout. Nothing changes for the ordinary caller — empty
+still means "nothing yet, go round again" — but do not build a
+deadline by counting empty returns and multiplying by
+\code{timeout_ms}, because that arithmetic silently under-counts on
+an interrupted wait. Read a clock instead.
 
 One queue serves the whole client or server, so a batch can mix
 events from every call in flight, and they arrive in completion

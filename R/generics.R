@@ -15,12 +15,22 @@
 #' cancellation notice (\code{type = "cancelled"}, \code{id}) for a
 #' request the peer abandoned before it was answered.
 #'
-#' An empty result means the wait expired with nothing queued at that
+#' An empty result means the wait ended with nothing queued at that
 #' moment; it says nothing about outstanding work, which ends only when
 #' its terminal event is delivered (\code{"unary"} for a call,
 #' \code{"stream_status"} for a stream). Loop until that event rather
 #' than treating an empty batch as the end of a call;
 #' \code{\link{grpc_pending}} reports what is still in flight.
+#'
+#' An empty result does \emph{not} prove \code{timeout_ms} elapsed. The
+#' wait also returns early when a signal interrupts it, which is
+#' deliberate: handing control back to R is what lets an interrupt be
+#' processed, where restarting the wait would swallow a Ctrl-C for the
+#' rest of the timeout. Nothing changes for the ordinary caller — empty
+#' still means "nothing yet, go round again" — but do not build a
+#' deadline by counting empty returns and multiplying by
+#' \code{timeout_ms}, because that arithmetic silently under-counts on
+#' an interrupted wait. Read a clock instead.
 #'
 #' One queue serves the whole client or server, so a batch can mix
 #' events from every call in flight, and they arrive in completion
@@ -89,14 +99,22 @@ grpc_poll <- function(x, max_events = 64L, timeout_ms = 0L) {
 #' \code{timeout_ms = -1} an unbounded wait. A server sees the client's
 #' deadline as \code{deadline_ms} on the request event.
 #'
-#' An empty result means \code{timeout_ms} expired with nothing for this
-#' call. It is not a failure and not an answer: an expired await leaves
-#' the call exactly as it was, so await it again to keep waiting, and
-#' the worst an expiry costs is another trip round the loop. Because an
-#' empty result is possible, index the batch only after checking it --
+#' An empty result means the wait ended with nothing for this call. It
+#' is not a failure and not an answer: an empty await leaves the call
+#' exactly as it was, so await it again to keep waiting, and the worst
+#' it costs is another trip round the loop. Because an empty result is
+#' possible, index the batch only after checking it --
 #' \code{grpc_await(call, timeout_ms = 1000)[[1]]} raises \code{subscript
 #' out of bounds} on a slow peer, which reads like a bug in the caller
 #' rather than the timeout it is.
+#'
+#' Usually the wait ended because \code{timeout_ms} expired, but it also
+#' returns early when a signal interrupts it, so an empty result is not
+#' proof that \code{timeout_ms} of wall time passed. That early return is
+#' deliberate — it is what lets R process a Ctrl-C instead of ignoring it
+#' until the timeout runs out. It matters only if you are deriving
+#' elapsed time from the number of empty awaits; use a clock for
+#' deadlines, not a count.
 #'
 #' @param x A \code{"grpc_call"}, \code{"grpc_stream"}, or
 #'   \code{"grpc_request"} object.
