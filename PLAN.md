@@ -673,13 +673,33 @@ Streaming throughput, pipelined (messages/sec, and MB/sec):
   earlier one-shot run put nanonext's 4KB p50 at 0.399ms, and three reps
   put it at 0.033–0.036ms. That first figure was noise presented as a
   finding, which is the same mistake as the K=20 fencing result.
-- **The R server is the throughput bottleneck, not gRPC.** `r-to-go`
-  reaches 92,559 msgs/sec at 256B where `r-to-r` reaches 31,449 — same
-  client, same transport, 3x apart. What differs is whether an R poll
-  loop is doing the echoing. That is the thing to attack if vientito
-  ever needs more, and it is not in this package.
-- **What this does not settle.** Memory, CPU, connection count and R
-  event-loop delay are unmeasured. Everything here is a loopback unix
+- **The R server is the throughput bottleneck, not gRPC — measured, not
+  inferred.** `r-to-go` reaches 92,559 msgs/sec at 256B where `r-to-r`
+  reaches 31,449: same client, same transport, 3x apart, so the limit is
+  on the server side. That much was a controlled swap. What it could not
+  say is whether the R server was *saturated* or merely waiting, and
+  "bottleneck" was claiming the former on the strength of the latter.
+  `tools/bench/resource-probe.sh` settles it. Serving 20,000 messages,
+  the R server burns **41.5µs of CPU per message** against the Go
+  server's **7.0µs** — 6x the cost for a third of the throughput. Split
+  by thread, the R main thread takes 0.74–0.81 cores and gRPC's
+  completion thread 0.35–0.44, so roughly 70% of the server's CPU is
+  spent in R, not in the transport. The R thread is near-saturated
+  rather than pegged, which matters for what the fix looks like: it is
+  single-threaded, so the lever is making the loop cheaper per message,
+  not adding parallelism. That work is in vientito, not in this package.
+- **Memory is bounded and plateaus.** Six consecutive 20,000-message
+  streams at 64KB against one server — 7.9GB of traffic — took RSS from
+  77MB idle to 106MB, then 143MB, then flat: 147, 149, 150, 150MB, peak
+  155MB, with throughput steady throughout. Climbing for two runs and
+  then stopping is an allocator high-water mark, not a leak, and a
+  single run could not have told the two apart. Note that ~77MB of the
+  total is the R interpreter before this package loads, so the package's
+  own steady-state footprint at 64KB streaming is around 75MB of
+  buffers — consistent with the flow-control window findings below.
+- **What this does not settle.** Connection count and R event-loop delay
+  are unmeasured; nothing here should be read as covering them. Every
+  figure above is one client against one server over a loopback unix
   socket, so latency is a floor and throughput a ceiling, and a real
   network moves the two transports differently — gRPC carries HTTP/2
   framing and flow control that cost more locally and earn more over a
@@ -877,9 +897,12 @@ own design pass rather than being settled here.
   nanonext for Viento-shaped messages.~~ **Done 2026-08-18**, see the
   benchmark section. Recipe at `tools/bench/bench.sh`.
 - Record p50/p99 latency, saturation throughput, memory, CPU, connection
-  count, and R event-loop delay. **Partly done**: latency and throughput
-  are measured. Memory, CPU, connection count and event-loop delay are
-  not, and should not be assumed from the numbers that are.
+  count, and R event-loop delay. **Partly done**: latency, throughput,
+  CPU and memory are measured (see the benchmark section; recipes at
+  `tools/bench/bench.sh` and `tools/bench/resource-probe.sh`).
+  **Connection count and R event-loop delay are not**, and should not be
+  assumed from the numbers that are — everything measured so far is one
+  client against one server.
 
 ## The split: the rebuild and the incumbent (decided 2026-08-14,
 ## names settled 2026-08-18)
