@@ -21,9 +21,9 @@ BugReports: https://github.com/cornball-ai/grpc/issues
 Depends: R (>= 4.3.0)
 Imports: methods
 Suggests: RProtoBuf, tinytest
-OS_type: unix
 SystemRequirements: gRPC C++ and protobuf libraries with development
     headers, found via 'pkg-config grpc++ protobuf' (Ubuntu/Debian:
-    'libgrpc++-dev', 'libprotobuf-dev').
+    'libgrpc++-dev', 'libprotobuf-dev'; on Windows both ship with
+    Rtools 4.3 and later).
 Encoding: UTF-8
 Config/roxygen2/version: 8.0.0

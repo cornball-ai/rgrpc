@@ -25,9 +25,18 @@ streaming channel between glinty's Flutter frontend and R backends.
 ## Platform commitment
 
 Ubuntu/apt first. This is built by and mostly for us, on r2u. System
-linking against the distro gRPC is the only build path; static vendoring
-and the Rust/tonic alternative are dropped (they existed to serve CRAN and
-Windows binaries, neither of which is a goal).
+linking against the platform's gRPC is the only build path; static
+vendoring and the Rust/tonic alternative stay dropped. This section
+originally added "they existed to serve CRAN and Windows binaries,
+neither of which is a goal" — both became goals in August 2026, and
+neither reopened the vendoring question: Windows links the gRPC that
+Rtools (>= 4.3) already bundles, macOS the Homebrew or CRAN-recipes
+build, and the wake primitive went portable (`src/wake.h`: self-pipe
+on Unix, loopback socket pair on Windows; eventfd is Linux-only). The
+one-protobuf-runtime argument below is the Linux story. Off Linux the
+libraries are static and per-DLL symbol spaces don't interpose, and
+the payload boundary is opaque bytes either way, so two protobuf
+runtimes never share descriptors.
 
 - **One protobuf runtime by construction.** Verified on noble:
   `libgrpc++1.51t64` depends on `libprotobuf32t64 (>= 3.21.12)`, and r2u's
@@ -111,9 +120,11 @@ native queue; R receives batches on its main thread.
 Polling is a fallback surface, not the integration primitive. The
 completion thread must be able to wake the R event loop (mechanism chosen
 in increment 2); an event loop that spins on `grpc_poll(timeout_ms = 0L)`
-is a design failure, not an integration. Linux-only makes this the easy
-case: eventfd plus `later_fd()` is clean, and no Windows path exists to
-break.
+is a design failure, not an integration. The mechanism became
+`src/wake.h`: a self-pipe on Unix (eventfd is Linux-only), a loopback
+socket pair on Windows, one contract everywhere — readable exactly
+while events are queued — so `later_fd()`-style integration holds on
+every platform.
 
 Provisional surface:
 

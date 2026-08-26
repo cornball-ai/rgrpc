@@ -10,11 +10,12 @@ stub code and no `protoc` step. Schemas are loaded at runtime, and
 consumes the message bytes. The two packages split the work cleanly:
 RProtoBuf owns descriptors and messages, grpc owns transport.
 
-The package links against the distribution's gRPC C++ library: one
-`apt install`, no vendored copies, no Rust toolchain. That keeps the
-notorious gRPC library dependence down to the same system packages the
-rest of the OS already uses, at the cost of tying the binary to the
-distro release it was built on (see `docker/` for the container
+The package links against the system's gRPC C++ library: one
+`apt install` on Linux, the copy Rtools already bundles on Windows,
+Homebrew's on macOS. No vendored copies, no Rust toolchain. That keeps
+the notorious gRPC library dependence down to the same packages the
+rest of the system already uses, at the cost of tying the binary to
+the toolchain release it was built on (see `docker/` for the container
 consequences).
 
 ## Design
@@ -22,9 +23,9 @@ consequences).
 - **Asynchronous throughout.** A background thread drains each
   completion queue and never touches the R API; completions are
   buffered natively and delivered in batches on the R main thread via
-  `grpc_poll()`. An eventfd (exposed through `grpc_fd()`) integrates
-  with `later::later_fd()`-style event loops, so polling is the
-  fallback, not the primitive.
+  `grpc_poll()`. A wake descriptor (exposed through `grpc_fd()`)
+  integrates with `later::later_fd()`-style event loops, so polling is
+  the fallback, not the primitive.
 - **Backpressure end to end.** Bounded write queues on both sides,
   bounded inbound buffering with real HTTP/2 flow control to the peer,
   and a bounded accept window on the server.
@@ -43,6 +44,13 @@ On Ubuntu (noble) or Debian:
 
 ```sh
 sudo apt install libgrpc++-dev libprotobuf-dev pkgconf
+```
+
+On Windows, Rtools 4.3 or later already carries gRPC and protobuf;
+there is nothing to install beyond Rtools itself. On macOS:
+
+```sh
+brew install grpc protobuf pkgconf
 ```
 
 Then, from a checkout:
@@ -190,7 +198,7 @@ the socket is accessible.
 
 ## Status
 
-Private and pre-release. The API is still allowed to move. PLAN.md
+Public and pre-release. The API is still allowed to move. PLAN.md
 records the design decisions and their evidence; `tools/sanitize.sh`
 is the valgrind/ASan/TSan gate.
 

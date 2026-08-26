@@ -3,7 +3,7 @@
 //
 // Threading contract: one background thread per client drains the
 // completion queue. It never calls the R API; completions are copied
-// into plain C++ event structs under the mutex and an eventfd is
+// into plain C++ event structs under the mutex and a wake handle is
 // signaled. R receives events in batches via grpc_r_client_poll on the
 // main thread. Stream ops are posted while holding the mutex so a
 // concurrently completing stream cannot be freed between a state check
@@ -28,16 +28,13 @@
 #include <utility>
 #include <vector>
 
-#include <poll.h>
-#include <sys/eventfd.h>
-#include <unistd.h>
-
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/generic/generic_stub.h>
 #include <grpcpp/support/byte_buffer.h>
 #include <grpcpp/support/slice.h>
 
 #include "common.h"
+#include "wake.h"
 
 namespace {
 
@@ -128,7 +125,7 @@ struct client {
     std::unique_ptr<grpc::GenericStub> stub;
     grpc::CompletionQueue cq;
     std::thread completer;
-    int event_fd = -1;
+    wake_handle wake;
 
     std::mutex mu;
     std::map<uint64_t, call_state *> calls;      // unary, until completed
@@ -141,11 +138,7 @@ struct client {
     // (grpc_cq_begin_op assertion); already-started ops drain fine.
     bool shutting = false;
 
-    void signal() {
-        uint64_t one = 1;
-        ssize_t n = write(event_fd, &one, sizeof one);
-        (void) n;
-    }
+    void signal() { wake_signal(wake); }
 
     // ---- stream helpers; all run under mu ----
 
@@ -316,10 +309,7 @@ void client_shutdown(client *c) {
     for (auto &kv : c->streams) delete kv.second;
     c->streams.clear();
     c->ready.clear();
-    if (c->event_fd >= 0) {
-        close(c->event_fd);
-        c->event_fd = -1;
-    }
+    wake_close(&c->wake);
 }
 
 void client_finalizer(SEXP xp) {
@@ -371,10 +361,11 @@ extern "C" SEXP grpc_r_client_create(SEXP target, SEXP tls, SEXP ca,
                                      SEXP keepalive_ms,
                                      SEXP keepalive_timeout_ms) {
     const char *tgt = Rf_translateCharUTF8(STRING_ELT(target, 0));
-    int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    if (fd < 0) Rf_error("eventfd creation failed");
     auto *c = new client();
-    c->event_fd = fd;
+    if (!wake_open(&c->wake)) {
+        delete c;
+        Rf_error("wake handle creation failed");
+    }
     std::shared_ptr<grpc::ChannelCredentials> creds;
     if (Rf_asLogical(tls) == TRUE) {
         grpc::SslCredentialsOptions opts;
@@ -421,7 +412,7 @@ extern "C" SEXP grpc_r_client_close(SEXP xp) {
 }
 
 extern "C" SEXP grpc_r_client_fd(SEXP xp) {
-    return Rf_ScalarInteger(get_client(xp)->event_fd);
+    return Rf_ScalarInteger(wake_fd(get_client(xp)->wake));
 }
 
 extern "C" SEXP grpc_r_client_pending(SEXP xp) {
@@ -557,7 +548,7 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
         };
 
         // Wait for an event this call actually wants. A filtered wait
-        // cannot lean on the eventfd staying readable, because another
+        // cannot lean on the wake handle staying readable, because another
         // call's queued events keep it readable forever and poll() would
         // spin. Draining before each wait makes the descriptor mean "a
         // completion arrived since I last looked", which is the question
@@ -569,9 +560,7 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
                 std::chrono::steady_clock::now() +
                 std::chrono::milliseconds(timeout < 0 ? 0 : timeout);
             while (!have_match()) {
-                uint64_t drained;
-                while (read(c->event_fd, &drained, sizeof drained) > 0) {
-                }
+                wake_drain(c->wake);
                 int wait_ms = -1;
                 if (timeout > 0) {
                     const auto left = std::chrono::duration_cast<
@@ -581,9 +570,8 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
                     if (left <= 0) break;
                     wait_ms = (int) left;
                 }
-                struct pollfd pfd = {c->event_fd, POLLIN, 0};
                 lock.unlock();
-                const int pr = poll(&pfd, 1, wait_ms);
+                const int pr = wake_poll(c->wake, wait_ms);
                 lock.lock();
                 // Timed out, or interrupted: hand control back to R
                 // rather than restarting the wait, so an interrupt is
@@ -595,12 +583,10 @@ extern "C" SEXP grpc_r_client_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
         // Drain and re-arm under the same lock that guards `ready`, so
         // readiness is a function of what is left in the deque rather
         // than of how many signals happened to fire. Draining outside
-        // the lock leaves the counter holding every signal posted after
+        // the lock leaves the handle holding every signal posted after
         // the read, even though those events are taken by the batch
         // below — the next poll then returns instantly with nothing.
-        uint64_t drained;
-        while (read(c->event_fd, &drained, sizeof drained) > 0) {
-        }
+        wake_drain(c->wake);
         auto it = c->ready.begin();
         while (it != c->ready.end() && (int) batch.size() < maxn) {
             if (!matches(*it)) {
