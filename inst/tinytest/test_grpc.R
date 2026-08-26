@@ -7,36 +7,36 @@ expect_true(nchar(grpc_version()) > 0L)
 
 ## channel create/destroy cycles
 for (i in 1:50) {
-  ch <- grpc:::.channel_create("dns:///127.0.0.1:1")
+  ch <- rgrpc:::.channel_create("dns:///127.0.0.1:1")
   expect_inherits(ch, "externalptr")
-  grpc:::.channel_destroy(ch)
+  rgrpc:::.channel_destroy(ch)
 }
 
 ## double destroy is a no-op
-ch <- grpc:::.channel_create("dns:///127.0.0.1:1")
-grpc:::.channel_destroy(ch)
-expect_silent(grpc:::.channel_destroy(ch))
+ch <- rgrpc:::.channel_create("dns:///127.0.0.1:1")
+rgrpc:::.channel_destroy(ch)
+expect_silent(rgrpc:::.channel_destroy(ch))
 
 ## completion queues shut down and drain cleanly
 for (i in 1:50) {
-  cq <- grpc:::.cq_create()
-  grpc:::.cq_destroy(cq)
+  cq <- rgrpc:::.cq_create()
+  rgrpc:::.cq_destroy(cq)
 }
 
 ## finalizers handle objects never explicitly destroyed
-ch <- grpc:::.channel_create("dns:///127.0.0.1:1")
-cq <- grpc:::.cq_create()
+ch <- rgrpc:::.channel_create("dns:///127.0.0.1:1")
+cq <- rgrpc:::.cq_create()
 rm(ch, cq)
 invisible(gc())
 
 if (at_home()) {
   ## ephemeral-port localhost bind; skipped during R CMD check
   for (i in 1:10) {
-    srv <- grpc:::.server_create("127.0.0.1:0")
-    expect_true(grpc:::.server_port(srv) > 0L)
-    grpc:::.server_destroy(srv)
+    srv <- rgrpc:::.server_create("127.0.0.1:0")
+    expect_true(rgrpc:::.server_port(srv) > 0L)
+    rgrpc:::.server_destroy(srv)
   }
-  srv <- grpc:::.server_create("127.0.0.1:0")
-  grpc:::.server_destroy(srv)
-  expect_silent(grpc:::.server_destroy(srv))
+  srv <- rgrpc:::.server_create("127.0.0.1:0")
+  rgrpc:::.server_destroy(srv)
+  expect_silent(rgrpc:::.server_destroy(srv))
 }
