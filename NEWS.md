@@ -1,3 +1,20 @@
+# grpc 0.0.1.14
+
+- The package builds on Windows and macOS. The completion wake-up was
+  the one platform-bound piece of the runtime: eventfd is Linux-only,
+  and `src/wake.h` replaces it with the same contract everywhere -- a
+  self-pipe on Unix, a loopback socket pair on Windows, readable
+  exactly while events are queued. Windows links the gRPC that
+  Rtools >= 4.3 bundles, through a static `Makevars.win`, and
+  `OS_type: unix` left DESCRIPTION. CI gains a macOS leg building
+  against Homebrew's gRPC.
+
+# grpc 0.0.1.13
+
+- Depends dropped from R (>= 4.4.0) to R (>= 4.3.0), the version noble
+  ships. (This heading was added retroactively; the bump rode with the
+  change in #23 without a NEWS entry.)
+
 # grpc 0.0.1.12
 
 - `grpc_await()` now works on a server `"grpc_request"` too, closing the

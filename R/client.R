@@ -16,7 +16,8 @@ grpc_status_codes <- c(OK = 0L, CANCELLED = 1L, UNKNOWN = 2L,
 #'
 #' Opens a channel to \code{target} and starts the client's completion
 #' machinery: a background thread that drains the gRPC completion queue
-#' and signals an eventfd. The background thread never calls the R API;
+#' and signals a wake descriptor. The background thread never calls the
+#' R API;
 #' completions are received on the R main thread via \code{\link{grpc_poll}}.
 #'
 #' Keepalive: with \code{keepalive_ms} set, the client pings the peer

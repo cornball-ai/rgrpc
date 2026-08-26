@@ -34,14 +34,11 @@
 #include <utility>
 #include <vector>
 
-#include <poll.h>
-#include <sys/eventfd.h>
-#include <unistd.h>
-
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/generic/async_generic_service.h>
 
 #include "common.h"
+#include "wake.h"
 
 namespace {
 
@@ -97,7 +94,7 @@ struct rserver {
     std::unique_ptr<grpc::ServerCompletionQueue> cq;
     std::unique_ptr<grpc::Server> server;
     std::thread completer;
-    int event_fd = -1;
+    wake_handle wake;
     int port = 0;
     int accept_window = 8;
     int max_active = 256;
@@ -110,11 +107,7 @@ struct rserver {
     bool closed = false;
     bool shutting = false;
 
-    void signal() {
-        uint64_t one = 1;
-        ssize_t n = write(event_fd, &one, sizeof one);
-        (void) n;
-    }
+    void signal() { wake_signal(wake); }
 
     void push_event_locked(sv_event ev) {
         ready.push_back(std::move(ev));
@@ -286,10 +279,7 @@ void rserver_shutdown(rserver *s) {
     if (s->completer.joinable()) s->completer.join();
     for (auto &kv : s->active) delete kv.second;
     s->active.clear();
-    if (s->event_fd >= 0) {
-        close(s->event_fd);
-        s->event_fd = -1;
-    }
+    wake_close(&s->wake);
 }
 
 void rserver_finalizer(SEXP xp) {
@@ -317,10 +307,11 @@ extern "C" SEXP grpc_r_server2_create(SEXP address, SEXP accept_window,
                                       SEXP keepalive_timeout_ms,
                                       SEXP min_ping_interval_ms) {
     const char *addr = Rf_translateCharUTF8(STRING_ELT(address, 0));
-    int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    if (fd < 0) Rf_error("eventfd creation failed");
     auto *s = new rserver();
-    s->event_fd = fd;
+    if (!wake_open(&s->wake)) {
+        delete s;
+        Rf_error("wake handle creation failed");
+    }
     s->accept_window = Rf_asInteger(accept_window);
     s->max_active = Rf_asInteger(max_active);
     std::shared_ptr<grpc::ServerCredentials> creds;
@@ -371,7 +362,7 @@ extern "C" SEXP grpc_r_server2_create(SEXP address, SEXP accept_window,
     s->cq = builder.AddCompletionQueue();
     s->server = builder.BuildAndStart();
     if (!s->server) {
-        close(fd);
+        wake_close(&s->wake);
         delete s;
         Rf_error("gRPC server failed to start on '%s'", addr);
     }
@@ -392,7 +383,7 @@ extern "C" SEXP grpc_r_server2_close(SEXP xp) {
 }
 
 extern "C" SEXP grpc_r_server2_fd(SEXP xp) {
-    return Rf_ScalarInteger(get_server(xp)->event_fd);
+    return Rf_ScalarInteger(wake_fd(get_server(xp)->wake));
 }
 
 extern "C" SEXP grpc_r_server2_port(SEXP xp) {
@@ -585,9 +576,7 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
                 std::chrono::steady_clock::now() +
                 std::chrono::milliseconds(timeout < 0 ? 0 : timeout);
             while (!have_match()) {
-                uint64_t drained;
-                while (read(s->event_fd, &drained, sizeof drained) > 0) {
-                }
+                wake_drain(s->wake);
                 int wait_ms = -1;
                 if (timeout > 0) {
                     const auto left = std::chrono::duration_cast<
@@ -597,9 +586,8 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
                     if (left <= 0) break;
                     wait_ms = (int) left;
                 }
-                struct pollfd pfd = {s->event_fd, POLLIN, 0};
                 lock.unlock();
-                const int pr = poll(&pfd, 1, wait_ms);
+                const int pr = wake_poll(s->wake, wait_ms);
                 lock.lock();
                 if (pr <= 0) break;
             }
@@ -607,9 +595,7 @@ extern "C" SEXP grpc_r_server2_poll(SEXP xp, SEXP max_events, SEXP timeout_ms,
 
         // Drain and re-arm under the same lock that guards `ready`; see
         // grpc_r_client_poll for why the drain cannot sit outside it.
-        uint64_t drained;
-        while (read(s->event_fd, &drained, sizeof drained) > 0) {
-        }
+        wake_drain(s->wake);
         auto it = s->ready.begin();
         while (it != s->ready.end() && (int) batch.size() < maxn) {
             if (!matches(*it)) {

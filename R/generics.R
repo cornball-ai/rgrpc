@@ -165,14 +165,15 @@ grpc_await <- function(x, timeout_ms, max_events = 64L) {
 
 #' Completion wakeup file descriptor
 #'
-#' Returns the object's eventfd. It is readable exactly while events are
-#' queued, so an event loop can wake on it instead of polling, e.g. with
-#' \code{later::later_fd()}. Do not read from this descriptor;
+#' Returns the object's wake descriptor: a pipe file descriptor on Unix,
+#' a socket descriptor on Windows. It is readable exactly while events
+#' are queued, so an event loop can wake on it instead of polling, e.g.
+#' with \code{later::later_fd()}. Do not read from this descriptor;
 #' \code{\link{grpc_poll}} drains it and leaves it readable if it
 #' returned a partial batch.
 #'
 #' @param x A \code{"grpc_client"} or \code{"grpc_server"} object.
-#' @return Integer file descriptor.
+#' @return Integer descriptor.
 #' @examples
 #' \dontrun{
 #' later::later_fd(function(ready) grpc_poll(client),

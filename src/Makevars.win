@@ -1,0 +1,7 @@
+# Rtools (>= 4.3) bundles gRPC C++ and protobuf, with .pc files on the
+# pkg-config path, so Windows needs no configure step: this static
+# Makevars asks pkg-config directly. ws2_32 is for the package's own
+# loopback socket pair in wake.h, not for gRPC.
+CXX_STD = CXX17
+PKG_CPPFLAGS = $(shell pkg-config --cflags grpc++ protobuf)
+PKG_LIBS = $(shell pkg-config --libs grpc++ protobuf) -lws2_32

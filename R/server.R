@@ -3,7 +3,7 @@
 #' Binds \code{address}, registers the generic asynchronous service (any
 #' method name is accepted; there are no generated stubs), and starts the
 #' server's completion machinery: a background thread that drains the
-#' completion queue and signals an eventfd. Incoming requests are
+#' completion queue and signals a wake descriptor. Incoming requests are
 #' received on the R main thread via \code{\link{grpc_poll}} and answered
 #' with \code{\link{grpc_reply}}.
 #'

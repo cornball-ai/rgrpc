@@ -9,19 +9,31 @@ env:
 
 jobs:
   ci:
-    # Ubuntu only, deliberately: the package links the distro gRPC C++
-    # library (see PLAN.md platform commitment). ubuntu-latest is noble,
-    # the same release the ABI pairing targets.
-    runs-on: ubuntu-latest
+    # ubuntu-latest is noble, the release the docker/ ABI pairing
+    # targets. macos-latest builds against Homebrew's gRPC — a much
+    # newer release than any distro's — so the pair brackets the
+    # version range CRAN's builders span.
+    strategy:
+      matrix:
+        include:
+          - {os: ubuntu-latest}
+          - {os: macos-latest}
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v6
 
-      - name: System dependencies
+      - name: System dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgrpc++-dev libprotobuf-dev pkgconf
+
+      - name: System dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install grpc protobuf pkgconf
 
       - name: Setup
         uses: eddelbuettel/github-actions/r-ci@master
