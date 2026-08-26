@@ -7,7 +7,7 @@
 ## check that never ran must not read as a pass.
 ##
 ## argv: target proto_dir expect_responder
-library(grpc)
+library(rgrpc)
 target <- argv[[1L]]
 pdir   <- argv[[2L]]
 who    <- argv[[3L]]

@@ -43,4 +43,4 @@ S3method(grpc_send,grpc_stream)
 
 importFrom(methods,as)
 
-useDynLib(grpc, .registration = TRUE)
+useDynLib(rgrpc, .registration = TRUE)

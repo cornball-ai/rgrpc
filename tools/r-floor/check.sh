@@ -47,7 +47,7 @@ R CMD INSTALL . > /tmp/inst.log 2>&1 || {
 }
 echo "RESULT install OK"
 Rscript -e "
-library(grpc)
+library(rgrpc)
 res <- tinytest::run_test_dir(\"inst/tinytest\", verbose = 0)
 print(res)
 if (!tinytest::all_pass(res)) { cat(\"RESULT tests FAILED\n\"); quit(status = 1L) }

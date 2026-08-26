@@ -1,13 +1,13 @@
 # Reference node image
 
-A two-stage image for running R processes that use the grpc package:
+A two-stage image for running R processes that use the rgrpc package:
 the build stage compiles the package against `libgrpc++-dev`, the
 runtime stage carries only `libgrpc++1.51t64` (the shared library) and
 `r-cran-rprotobuf`.
 
 ## The base-image constraint
 
-grpc links the distro's gRPC at its ABI; nothing is vendored. That
+rgrpc links the distro's gRPC at its ABI; nothing is vendored. That
 makes the pairing rule explicit:
 
 **The image base must be the same distro release the package was built
@@ -33,15 +33,15 @@ in glob order:
 
 ```sh
 r -e 'tinypkgr::build()'   # writes to ~/.cache/R/tinypkgr/
-cp ~/.cache/R/tinypkgr/grpc_<version>.tar.gz docker/grpc.tar.gz
-docker build -t cornball/grpc-node docker/
+cp ~/.cache/R/tinypkgr/rgrpc_<version>.tar.gz docker/rgrpc.tar.gz
+docker build -t cornball/rgrpc-node docker/
 ```
 
 ## Smoke test
 
 ```sh
-docker run --rm cornball/grpc-node Rscript -e '
-  library(grpc)
+docker run --rm cornball/rgrpc-node Rscript -e '
+  library(rgrpc)
   srv <- grpc_server()
   cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
   call <- grpc_call(cl, "/demo.Echo/Say", as.raw(1:4), deadline_ms = 5000)

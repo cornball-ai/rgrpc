@@ -4,7 +4,7 @@
 ## Driven by tools/soak-fanout.sh.
 ##
 ## argv: sock nfast nclients slow|noslow
-library(grpc)
+library(rgrpc)
 sock     <- argv[[1L]]
 nfast    <- as.integer(argv[[2L]])
 nclients <- as.integer(argv[[3L]])

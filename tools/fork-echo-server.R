@@ -3,7 +3,7 @@
 ## the socket's parent script kills it or `secs` elapses.
 ##
 ## argv: sock secs
-library(grpc)
+library(rgrpc)
 sock <- argv[[1L]]
 secs <- if (length(argv) >= 2L) as.numeric(argv[[2L]]) else 120
 

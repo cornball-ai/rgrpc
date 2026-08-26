@@ -3,8 +3,8 @@
 # preloaded libtsan, so this script takes pre-generated certificates
 # via the CERTDIR environment variable instead.
 lib <- Sys.getenv("GRPC_SANITIZE_LIB")
-stopifnot(nzchar(lib), identical(find.package("grpc"), file.path(lib, "grpc")))
-library(grpc)
+stopifnot(nzchar(lib), identical(find.package("rgrpc"), file.path(lib, "rgrpc")))
+library(rgrpc)
 d <- Sys.getenv("CERTDIR")
 p <- function(f) file.path(d, f)
 sc <- grpc_tls(ca_file = p("ca.pem"), cert_file = p("server.pem"),

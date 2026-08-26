@@ -5,7 +5,7 @@
 ## numbers mean.
 ##
 ## argv: sock nsub nevents size policy accept_window kfence
-library(grpc)
+library(rgrpc)
 sock   <- argv[[1L]]
 nsub   <- as.integer(argv[[2L]])
 nev    <- as.integer(argv[[3L]])

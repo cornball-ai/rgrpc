@@ -16,7 +16,7 @@
 ##            call site and mean completely different things.
 ##
 ## argv: sock mode size n settle_s delay_us
-library(grpc)
+library(rgrpc)
 sock     <- argv[[1L]]
 mode     <- argv[[2L]]
 size     <- as.integer(argv[[3L]])
