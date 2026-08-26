@@ -16,7 +16,7 @@
 ## asked for.
 ##
 ## argv: target mode size n label
-library(grpc)
+library(rgrpc)
 target <- argv[[1L]]
 mode   <- argv[[2L]]
 size   <- as.integer(argv[[3L]])

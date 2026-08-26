@@ -21,7 +21,7 @@
 ## reports nothing at all.
 ##
 ## argv: sock case timeout_s
-library(grpc)
+library(rgrpc)
 library(parallel)
 sock    <- argv[[1L]]
 case    <- argv[[2L]]

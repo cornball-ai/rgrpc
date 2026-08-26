@@ -1061,10 +1061,14 @@ new surfaces with `.proto` contracts, not a retrofit.
 
 ## Open decisions
 
-- Final package name and repository. With system-linked C++ committed,
-  `gRPCpp` no longer risks naming an implementation that might change,
-  but `grpc` is cleaner and unclaimed on CRAN (not that CRAN is the
-  target). Decide before the first push.
+- ~~Final package name and repository.~~ Resolved 2026-08-26: `rgrpc`.
+  `grpc` was unclaimed on CRAN, but the bare name is a search token
+  owned entirely by the upstream project — docs, issues, and error
+  messages for an R package named `grpc` would live behind qualified
+  queries forever, while `rgrpc` is unique everywhere that matters
+  (CRAN, GitHub beyond a few 0-star toys, web search). Renamed before
+  the first CRAN submission, the last cheap moment. Exported functions
+  keep their `grpc_*` names: they name the protocol, not the package.
 - Generic dynamic API only versus optional generated R conveniences.
 - Strict handling of unknown fields versus normal protobuf evolution.
 - **A one-call-one-answer convenience.** Both the CRI example and the

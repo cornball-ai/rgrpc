@@ -1,4 +1,4 @@
-# grpc
+# rgrpc
 
 An asynchronous gRPC client and server runtime for R.
 
@@ -69,7 +69,7 @@ need it.
 Client and server in one process, raw bytes, no schema:
 
 ```r
-library(grpc)
+library(rgrpc)
 
 srv <- grpc_server("127.0.0.1:0")
 cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
@@ -122,7 +122,7 @@ Load a schema at runtime, resolve the service, and the byte handling
 disappears:
 
 ```r
-library(grpc)
+library(rgrpc)
 library(RProtoBuf)
 
 proto <- tempfile(fileext = ".proto")
@@ -174,10 +174,10 @@ The package talks to containerd over its unix socket using the CRI v1
 schema vendored under `inst/proto/cri`:
 
 ```r
-library(grpc)
+library(rgrpc)
 library(RProtoBuf)
 readProtoFiles2("api.proto",
-                protoPath = system.file("proto", "cri", package = "grpc"))
+                protoPath = system.file("proto", "cri", package = "rgrpc"))
 
 cl <- grpc_client("unix:///run/containerd/containerd.sock")
 rt <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")

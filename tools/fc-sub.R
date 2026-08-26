@@ -10,7 +10,7 @@
 ## opposite things in the two modes, which is the point being measured.
 ##
 ## argv: sock read_buffer hold_s mode
-library(grpc)
+library(rgrpc)
 sock <- argv[[1L]]
 rbuf <- as.integer(argv[[2L]])
 hold <- as.numeric(argv[[3L]])
@@ -21,7 +21,7 @@ mode <- if (length(argv) >= 4L) argv[[4L]] else "stuck"
 ## probe that reports "no effect" is worthless if it silently loaded a
 ## different library than the one being tested.
 cat(sprintf("WHICH so=%s mode=%s read_buffer=%d\n",
-            getLoadedDLLs()[["grpc"]][["path"]], mode, rbuf))
+            getLoadedDLLs()[["rgrpc"]][["path"]], mode, rbuf))
 flush(stdout())
 
 cl <- grpc_client(sprintf("unix://%s", sock))

@@ -35,8 +35,8 @@ if (at_home()) {
   grpc_close(cl)
 
   ## deadline against a live generic server that never responds
-  srv <- grpc:::.server_create("127.0.0.1:0")
-  cl <- grpc_client(sprintf("127.0.0.1:%d", grpc:::.server_port(srv)))
+  srv <- rgrpc:::.server_create("127.0.0.1:0")
+  cl <- grpc_client(sprintf("127.0.0.1:%d", rgrpc:::.server_port(srv)))
   call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 200)
   evs <- drain(cl)
   expect_equal(evs[[1]]$status_name, "DEADLINE_EXCEEDED")
@@ -48,7 +48,7 @@ if (at_home()) {
   evs <- drain(cl)
   expect_equal(evs[[1]]$status_name, "CANCELLED")
   grpc_close(cl)
-  grpc:::.server_destroy(srv)
+  rgrpc:::.server_destroy(srv)
 
   ## metadata on the request does not disturb completion
   cl <- grpc_client("127.0.0.1:1")

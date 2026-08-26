@@ -10,7 +10,7 @@
 ## that is not the bottleneck.
 ##
 ## argv: addr secs
-library(grpc)
+library(rgrpc)
 addr <- argv[[1L]]
 secs <- if (length(argv) >= 2L) as.numeric(argv[[2L]]) else 120
 

@@ -5,11 +5,11 @@
 #
 #   Rscript --vanilla cri-list-pods.R [socket-path]
 
-library(grpc)
+library(rgrpc)
 args <- commandArgs(trailingOnly = TRUE)
 socket <- if (length(args)) args[[1]] else "/run/containerd/containerd.sock"
 
-proto_root <- system.file("proto", "cri", package = "grpc")
+proto_root <- system.file("proto", "cri", package = "rgrpc")
 RProtoBuf::readProtoFiles2("api.proto", protoPath = proto_root)
 rt <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")
 

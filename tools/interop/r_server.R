@@ -3,7 +3,7 @@
 ## of ours to talk to.
 ##
 ## argv: addr proto_dir secs
-library(grpc)
+library(rgrpc)
 addr  <- argv[[1L]]
 pdir  <- argv[[2L]]
 secs  <- if (length(argv) >= 3L) as.numeric(argv[[3L]]) else 60

@@ -194,7 +194,7 @@ static const R_CallMethodDef call_methods[] = {
     {NULL, NULL, 0}
 };
 
-extern "C" void R_init_grpc(DllInfo *dll) {
+extern "C" void R_init_rgrpc(DllInfo *dll) {
     R_registerRoutines(dll, NULL, call_methods, NULL, NULL);
     R_useDynamicSymbols(dll, FALSE);
 }

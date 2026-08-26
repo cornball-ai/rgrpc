@@ -53,7 +53,7 @@ set -eu
 
 ## Never leave sanitizer-flagged objects in src/ for the next normal
 ## build to silently reuse — on failure as much as on success.
-trap 'rm -f src/*.o src/grpc.so' EXIT
+trap 'rm -f src/*.o src/rgrpc.so' EXIT
 
 WORK="${WORK:-$(mktemp -d)}"
 echo "work dir: $WORK"
@@ -66,7 +66,7 @@ echo "work dir: $WORK"
 ## library path (observed with littler on noble), which once made these
 ## passes run the ambient install; libraries are injected via R_LIBS
 ## and verified here so that cannot happen silently again.
-SUITE='lib <- Sys.getenv("GRPC_SANITIZE_LIB"); stopifnot(nzchar(lib), identical(find.package("grpc"), file.path(lib, "grpc"))); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res)); cat("SUITE-ALL-PASS\n")'
+SUITE='lib <- Sys.getenv("GRPC_SANITIZE_LIB"); stopifnot(nzchar(lib), identical(find.package("rgrpc"), file.path(lib, "rgrpc"))); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res)); cat("SUITE-ALL-PASS\n")'
 
 ## Per-report TSan triage (criterion documented in the header). For
 ## each report, each racing access is classified by its performing
@@ -216,7 +216,7 @@ R CMD INSTALL --preclean -l "$WORK/lib-plain" .
 R_LIBS="$WORK/lib-plain" GRPC_SANITIZE_LIB="$WORK/lib-plain" \
     valgrind --leak-check=full --show-leak-kinds=definite \
     --errors-for-leak-kinds=definite --error-exitcode=99 \
-    r -l grpc -e "$SUITE"
+    r -l rgrpc -e "$SUITE"
 
 ## The package builds with CXX_STD = CXX17, so R reads CXX17FLAGS —
 ## setting CXXFLAGS alone is silently ignored. Belt and braces: set
@@ -227,8 +227,8 @@ sanitizer_flags() {
         "$1" "$1" "$1"
 }
 check_instrumented() {
-    if ! nm -u "$1/grpc/libs/grpc.so" | grep -q "__$2"; then
-        echo "FATAL: $1/grpc/libs/grpc.so has no __$2 references —"
+    if ! nm -u "$1/rgrpc/libs/rgrpc.so" | grep -q "__$2"; then
+        echo "FATAL: $1/rgrpc/libs/rgrpc.so has no __$2 references —"
         echo "the sanitizer flags did not reach the build"
         exit 1
     fi
@@ -248,7 +248,7 @@ check_instrumented "$WORK/lib-asan" asan
 LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libasan.so.8 \
     ASAN_OPTIONS=detect_leaks=0 \
     R_LIBS="$WORK/lib-asan" GRPC_SANITIZE_LIB="$WORK/lib-asan" \
-    r -l grpc -e "$SUITE"
+    r -l rgrpc -e "$SUITE"
 
 ## ---- ThreadSanitizer ----
 sanitizer_flags thread > "$WORK/Makevars.tsan"
@@ -260,7 +260,7 @@ setarch "$(uname -m)" -R env \
     LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtsan.so.2 \
     TSAN_OPTIONS="halt_on_error=0 report_thread_leaks=0" \
     R_LIBS="$WORK/lib-tsan" GRPC_SANITIZE_LIB="$WORK/lib-tsan" \
-    r -l grpc -e "$SUITE" \
+    r -l rgrpc -e "$SUITE" \
     > "$WORK/tsan.log" 2>&1 || true
 grep -q "SUITE-ALL-PASS" "$WORK/tsan.log" || {
     echo "FATAL: TSan suite did not complete with all tests passing"

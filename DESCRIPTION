@@ -1,4 +1,4 @@
-Package: grpc
+Package: rgrpc
 Type: Package
 Title: Asynchronous 'gRPC' Client and Server Runtime
 Version: 0.1.0
@@ -16,8 +16,8 @@ Description: A first-class asynchronous 'gRPC' runtime built on the generic
     and delivered in batches on the R main thread. Complements 'RProtoBuf'
     rather than replacing it. Links against the system 'gRPC' C++ library.
 License: Apache License (>= 2)
-URL: https://github.com/cornball-ai/grpc
-BugReports: https://github.com/cornball-ai/grpc/issues
+URL: https://github.com/cornball-ai/rgrpc
+BugReports: https://github.com/cornball-ai/rgrpc/issues
 Depends: R (>= 4.3.0)
 Imports: methods
 Suggests: RProtoBuf, tinytest

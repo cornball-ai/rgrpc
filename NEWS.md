@@ -1,12 +1,16 @@
-# grpc 0.1.0
+# rgrpc 0.1.0
 
+- Renamed from `grpc` to `rgrpc` before the first release: the bare
+  name is a search token owned by the upstream project, and a unique
+  name keeps this package's docs and issues findable. Exported
+  functions keep their `grpc_*` names.
 - First CRAN release: an asynchronous gRPC client and server runtime on
   the generic C++ API, with unary and streaming calls, TLS/mTLS,
   deadlines, keepalive, cancellation, and event-loop integration via
   `grpc_fd()`. Runs on Linux, Windows (Rtools >= 4.3), and macOS.
   The 0.0.1.x entries below record the development history.
 
-# grpc 0.0.1.14
+# rgrpc 0.0.1.14
 
 - The package builds on Windows and macOS. The completion wake-up was
   the one platform-bound piece of the runtime: eventfd is Linux-only,
@@ -17,13 +21,13 @@
   `OS_type: unix` left DESCRIPTION. CI gains a macOS leg building
   against Homebrew's gRPC.
 
-# grpc 0.0.1.13
+# rgrpc 0.0.1.13
 
 - Depends dropped from R (>= 4.4.0) to R (>= 4.3.0), the version noble
   ships. (This heading was added retroactively; the bump rode with the
   change in #23 without a NEWS entry.)
 
-# grpc 0.0.1.12
+# rgrpc 0.0.1.12
 
 - `grpc_await()` now works on a server `"grpc_request"` too, closing the
   asymmetry 0.0.1.11 left behind: the docs said "one queue serves the
@@ -42,7 +46,7 @@
   when the handler ends it -- so `"client_done"` is what a
   client-streaming handler loops to.
 
-# grpc 0.0.1.11
+# rgrpc 0.0.1.11
 
 - New `grpc_await(x, timeout_ms)`: waits for events belonging to one
   call or stream. Other calls' events are stepped over and left queued
@@ -75,7 +79,7 @@
   while nothing else is in flight, which is exactly how a caller
   infers the wrong model.
 
-# grpc 0.0.1.10
+# rgrpc 0.0.1.10
 
 - Fixed spurious wake-ups from `grpc_poll()` (#12). The eventfd
   carries one signal per event, but the counter was drained outside
@@ -107,7 +111,7 @@
   disagreed with its payload, while an accumulator that ignored `id`
   got the wrong byte count 36 times out of 40.
 
-# grpc 0.0.1.9
+# rgrpc 0.0.1.9
 
 - Fixed a use-after-free race found by the first genuinely
   instrumented ThreadSanitizer run: `grpc_r_call_start()` and
@@ -124,7 +128,7 @@
   failure, non-data-race TSan warnings are fatal, and the report
   classifier self-tests against synthetic logs at every run.
 
-# grpc 0.0.1.8
+# rgrpc 0.0.1.8
 
 - Keepalive: `keepalive_ms`/`keepalive_timeout_ms` on `grpc_client()`
   and `grpc_server()`, plus `min_ping_interval_ms` (server tolerance
@@ -136,7 +140,7 @@
   now also works on server requests as the hard escalation past a peer
   that has stopped reading.
 
-# grpc 0.0.1.7
+# rgrpc 0.0.1.7
 
 - Fixed a completion-queue shutdown race that aborted the process when
   closing a client (or server) with stream operations in flight: the
@@ -158,7 +162,7 @@
   alongside `libgrpc++-dev` (not pulled automatically under
   `--no-install-recommends`).
 
-# grpc 0.0.1.6
+# rgrpc 0.0.1.6
 
 - Operational surface: `grpc_tls()` builds PEM credentials for both
   sides (TLS server, CA-pinned client, mTLS with
@@ -171,7 +175,7 @@
   generic path — unary Check and bidi ServerReflectionInfo — with no
   special machinery.
 
-# grpc 0.0.1.5
+# rgrpc 0.0.1.5
 
 - Streaming: `grpc_stream()` opens client-, server-, and bidirectional
   streams (typed or raw); `grpc_send()` (bounded write queue with
@@ -184,7 +188,7 @@
 - Live CRI streaming smoke: subscribe, hold, and cancel
   `GetContainerEvents` against containerd.
 
-# grpc 0.0.1.4
+# rgrpc 0.0.1.4
 
 - Real-world proof: CRI client against live containerd (v2.2.3) over a
   unix-domain socket — `Version`, `ListPodSandbox`, `ListImages`, all
@@ -193,7 +197,7 @@
   (`GRPC_R_CRI_SOCKET`); `inst/examples/cri-list-pods.R` for humans.
 - PLAN.md: Viento experiment reframed as control-plane candidacy.
 
-# grpc 0.0.1.3
+# rgrpc 0.0.1.3
 
 - RProtoBuf integration: `grpc_service()` / `grpc_method()` resolve
   services and methods from the runtime descriptor pool (via the
@@ -203,7 +207,7 @@
   accepts a `Message`; `grpc_decode()` decodes payload bytes. RProtoBuf
   remains a Suggests.
 
-# grpc 0.0.1.2
+# rgrpc 0.0.1.2
 
 - Generic asynchronous server on `AsyncGenericService`: `grpc_server()`
   accepts any method dynamically; `grpc_reply()` answers with a payload
@@ -216,7 +220,7 @@
 - Full in-process round trips (TCP and unix-domain sockets) covered in
   tests.
 
-# grpc 0.0.1.1
+# rgrpc 0.0.1.1
 
 - Generic asynchronous unary client on `GenericStub`: `grpc_client()`,
   `grpc_call()`, `grpc_poll()`, `grpc_cancel()`, `grpc_pending()`,
@@ -225,7 +229,7 @@
   `later::later_fd()`-style integration; polling is the fallback, not
   the primitive.
 
-# grpc 0.0.1
+# rgrpc 0.0.1
 
 - Initial skeleton: system-linked build against the distro gRPC C++
   library via `pkg-config`, spike shim proving safe create/destroy of

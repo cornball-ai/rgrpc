@@ -56,4 +56,4 @@ jobs:
         run: |
           mkdir -p "$HOME/Rlib"
           R CMD INSTALL -l "$HOME/Rlib" .
-          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(grpc); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res))'
+          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(rgrpc); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res))'
