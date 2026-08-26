@@ -3,6 +3,7 @@
 ^\.Rproj\.user$
 ^\.github$
 ^PLAN\.md$
+^cran-comments\.md$
 ^LICENSE$
 ^CLAUDE\.md$
 ^tasks$

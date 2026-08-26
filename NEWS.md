@@ -1,3 +1,11 @@
+# grpc 0.1.0
+
+- First CRAN release: an asynchronous gRPC client and server runtime on
+  the generic C++ API, with unary and streaming calls, TLS/mTLS,
+  deadlines, keepalive, cancellation, and event-loop integration via
+  `grpc_fd()`. Runs on Linux, Windows (Rtools >= 4.3), and macOS.
+  The 0.0.1.x entries below record the development history.
+
 # grpc 0.0.1.14
 
 - The package builds on Windows and macOS. The completion wake-up was
