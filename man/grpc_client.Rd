@@ -30,7 +30,8 @@ An object of class \code{"grpc_client"}.
 \description{
 Opens a channel to \code{target} and starts the client's completion
 machinery: a background thread that drains the gRPC completion queue
-and signals an eventfd. The background thread never calls the R API;
+and signals a wake descriptor. The background thread never calls the
+R API;
 completions are received on the R main thread via \code{\link{grpc_poll}}.
 }
 \details{
