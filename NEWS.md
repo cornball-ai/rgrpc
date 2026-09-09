@@ -1,3 +1,13 @@
+# rgrpc 0.1.0.1
+
+- CRAN resubmission after the review of 0.1.0. DESCRIPTION links the
+  gRPC project and its C++ API; every exported function documents its
+  return value, including the seven called for their side effects; and
+  the examples run instead of sitting in `\dontrun{}`: each one drives a
+  client and a server in the same process over the loopback interface.
+  `grpc_tls()` keeps a `\dontrun{}` example because it needs certificate
+  files.
+
 # rgrpc 0.1.0
 
 - Renamed from `grpc` to `rgrpc` before the first release: the bare
