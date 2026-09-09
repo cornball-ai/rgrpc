@@ -50,12 +50,41 @@
 #' @param timeout_ms How long to wait if no event is ready: \code{0}
 #'   returns immediately, a positive value waits up to that many
 #'   milliseconds, \code{-1} waits indefinitely.
-#' @return A list of events (possibly empty).
+#' @return A list of events (possibly empty), each a list as described
+#'   above; server request events additionally carry class
+#'   \code{"grpc_request"}.
 #' @examples
-#' \dontrun{
-#' events <- grpc_poll(client, max_events = 64L, timeout_ms = 100L)
-#' for (ev in events) if (ev$status_name == "OK") handle(ev$response)
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## three calls in flight at once
+#' calls <- lapply(1:3, function(i) {
+#'   grpc_call(cl, "/demo.Echo/Say", as.raw(i), deadline_ms = 5000)
+#' })
+#'
+#' ## server: one queue for every call; answer requests as they arrive
+#' answered <- 0L
+#' while (answered < 3L) {
+#'   for (ev in grpc_poll(srv, timeout_ms = 100L)) {
+#'     if (ev$type == "request") {
+#'       grpc_reply(ev, ev$request)
+#'       answered <- answered + 1L
+#'     }
+#'   }
 #' }
+#'
+#' ## client: completions come back in completion order, so match on id
+#' ids <- vapply(calls, function(x) x$id, numeric(1))
+#' got <- vector("list", length(calls))
+#' while (any(vapply(got, is.null, logical(1)))) {
+#'   for (ev in grpc_poll(cl, timeout_ms = 100L)) {
+#'     if (ev$kind == "unary") got[[match(ev$id, ids)]] <- ev$response
+#'   }
+#' }
+#' unlist(got)
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_poll <- function(x, max_events = 64L, timeout_ms = 0L) {
     UseMethod("grpc_poll")
@@ -125,39 +154,43 @@ grpc_poll <- function(x, max_events = 64L, timeout_ms = 0L) {
 #'   call's own deadline is the other half of that guarantee.
 #' @param max_events Maximum events to return in this batch.
 #' @return A list of events for \code{x} (possibly empty), in arrival
-#'   order.
+#'   order. Each event is a list with the same fields
+#'   \code{\link{grpc_poll}} delivers for that kind of object.
 #' @examples
-#' \dontrun{
-#' ## unary: keep waiting until the completion arrives. The call's own
-#' ## deadline_ms is what guarantees this loop ends.
-#' call <- grpc_call(client, "/demo.Echo/Say", req, deadline_ms = 5000)
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## unary: keep waiting until the completion arrives; the call's own
+#' ## deadline_ms is what guarantees this loop ends
+#' call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' grpc_reply(req, req$request)
 #' repeat {
-#'   evs <- grpc_await(call, timeout_ms = 1000)
-#'   if (length(evs)) break                       # empty just means "not yet"
+#'   evs <- grpc_await(call, timeout_ms = 1000L)
+#'   if (length(evs)) break                # empty just means "not yet"
 #' }
 #' evs[[1]]$status_name
 #'
-#' ## server stream: accumulate to the terminal status
-#' s <- grpc_stream(client, "/demo.Big/List", deadline_ms = 15000)
-#' grpc_writes_done(s)
-#' out <- list()
-#' repeat {
-#'   evs <- grpc_await(s, timeout_ms = 1000)
-#'   for (ev in evs) if (ev$kind == "stream_msg") out <- c(out, list(ev$response))
-#'   if (any(vapply(evs, function(e) e$kind == "stream_status", TRUE))) break
-#' }
-#'
 #' ## server handler: drain one client-streaming call without seeing any
 #' ## other call's messages
-#' got <- list()
+#' s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
+#' for (i in 1:3) grpc_send(s, as.raw(i))
+#' grpc_writes_done(s)
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' got <- list(req$request)
 #' repeat {
 #'   grpc_read(req)
-#'   evs <- grpc_await(req, timeout_ms = 1000)
+#'   evs <- grpc_await(req, timeout_ms = 1000L)
 #'   for (ev in evs) if (ev$type == "stream_msg") got <- c(got, list(ev$request))
-#'   if (any(vapply(evs, function(e) e$type == "client_done", TRUE))) break
+#'   if (length(Filter(function(e) e$type %in% c("client_done", "cancelled"), evs))) break
 #' }
-#' grpc_finish(req)
-#' }
+#' grpc_reply(req, as.raw(length(got)))
+#' length(got)
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_await <- function(x, timeout_ms, max_events = 64L) {
     UseMethod("grpc_await")
@@ -173,12 +206,17 @@ grpc_await <- function(x, timeout_ms, max_events = 64L) {
 #' returned a partial batch.
 #'
 #' @param x A \code{"grpc_client"} or \code{"grpc_server"} object.
-#' @return Integer descriptor.
+#' @return Integer scalar: the wake descriptor, valid until the object is
+#'   closed.
 #' @examples
-#' \dontrun{
-#' later::later_fd(function(ready) grpc_poll(client),
-#'                 readfds = grpc_fd(client))
-#' }
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#' grpc_fd(cl)
+#' grpc_fd(srv)
+#' ## hand the descriptor to an event loop instead of polling, e.g.
+#' ##   later::later_fd(function(ready) grpc_poll(cl), readfds = grpc_fd(cl))
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_fd <- function(x) {
     UseMethod("grpc_fd")
@@ -191,9 +229,27 @@ grpc_fd <- function(x) {
 #' completed.
 #'
 #' @param x A \code{"grpc_client"} or \code{"grpc_server"} object.
-#' @return Integer count.
+#' @return Integer scalar: the number of in-flight operations, zero when
+#'   nothing is outstanding.
 #' @examples
-#' \dontrun{while (grpc_pending(client) > 0) grpc_poll(client, timeout_ms = 100L)}
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#' grpc_pending(cl)                        # 0
+#' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
+#' grpc_pending(cl)                        # 1: started, not yet completed
+#'
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' grpc_pending(srv)                       # 1: accepted, not yet answered
+#' grpc_reply(req, raw(0))
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000L)
+#'   if (length(evs)) break
+#' }
+#' grpc_pending(cl)                        # 0 again
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_pending <- function(x) {
     UseMethod("grpc_pending")
@@ -214,8 +270,46 @@ grpc_pending <- function(x) {
 #'   serialize (validated against the method's \code{input_type} on a
 #'   typed client stream).
 #' @param ... Reserved.
+#' @return Invisibly, a logical scalar: \code{TRUE} if the message was
+#'   queued for sending, \code{FALSE} if the write queue is full or the
+#'   stream no longer accepts writes (half-closed, finished, cancelled,
+#'   or past its deadline).
 #' @examples
-#' \dontrun{while (!grpc_send(s, msg)) grpc_poll(client, timeout_ms = 100L)}
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## client streaming: queue five messages, then half-close
+#' s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
+#' for (i in 1:5) grpc_send(s, as.raw(i))
+#' grpc_writes_done(s)
+#' (grpc_send(s, as.raw(6)))               # FALSE: no writes after the half-close
+#'
+#' ## server: count what arrives (the first message rides on the request
+#' ## event), then answer once, unary-style
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' n <- 1L
+#' repeat {
+#'   grpc_read(req)
+#'   evs <- grpc_await(req, timeout_ms = 1000L)
+#'   n <- n + length(Filter(function(e) e$type == "stream_msg", evs))
+#'   if (length(Filter(function(e) e$type %in% c("client_done", "cancelled"), evs))) break
+#' }
+#' grpc_reply(req, as.raw(n))
+#'
+#' ## client: the reply is one "stream_msg", followed by the "stream_status"
+#' reply <- NULL
+#' repeat {
+#'   evs <- grpc_await(s, timeout_ms = 1000L)
+#'   for (ev in evs) if (ev$kind == "stream_msg") reply <- ev$response
+#'   if (length(Filter(function(e) e$kind == "stream_status", evs))) break
+#' }
+#' as.integer(reply)
+#'
+#' ## a full write queue makes grpc_send() return FALSE; wait for the
+#' ## "stream_writable" event (grpc_await() on the stream) and retry
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_send <- function(x, msg, ...) {
     UseMethod("grpc_send")
@@ -238,8 +332,39 @@ grpc_send <- function(x, msg, ...) {
 #'
 #' @param x A \code{"grpc_call"}, \code{"grpc_stream"}, or
 #'   \code{"grpc_request"} object.
+#' @return Invisibly. For a client \code{"grpc_call"} or
+#'   \code{"grpc_stream"}, \code{NULL}: the function is called for its
+#'   side effect, and the outcome arrives as the call's \code{CANCELLED}
+#'   completion. For a server \code{"grpc_request"}, a logical scalar:
+#'   \code{TRUE} if cancellation was requested on a live call,
+#'   \code{FALSE} if the call was already terminal.
 #' @examples
-#' \dontrun{grpc_cancel(call)}
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## a call the server holds without answering: cancel it instead of
+#' ## waiting for its deadline
+#' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 60000)
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' grpc_cancel(call)
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000L)
+#'   if (length(evs)) break
+#' }
+#' evs[[1]]$status_name
+#'
+#' ## the server hears of it as a "cancelled" event, and the request can no
+#' ## longer be answered
+#' repeat {
+#'   evs <- grpc_await(req, timeout_ms = 1000L)
+#'   if (length(Filter(function(e) e$type == "cancelled", evs))) break
+#' }
+#' (grpc_reply(req, raw(0)))               # FALSE
+#' (grpc_cancel(req))                      # FALSE: already terminal
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_cancel <- function(x) {
     UseMethod("grpc_cancel")
@@ -253,8 +378,14 @@ grpc_cancel <- function(x) {
 #' shutdown if the object is garbage collected unclosed.
 #'
 #' @param x A \code{"grpc_client"} or \code{"grpc_server"} object.
+#' @return No return value (\code{NULL}, invisibly); called for its side
+#'   effect of shutting the object down.
 #' @examples
-#' \dontrun{grpc_close(client)}
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#' grpc_close(cl)
+#' grpc_close(srv)
+#' grpc_close(srv)                         # closing twice is a no-op
 #' @export
 grpc_close <- function(x) {
     UseMethod("grpc_close")

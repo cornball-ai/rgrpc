@@ -46,16 +46,35 @@
 #' the measured behaviour. Create the server in the process that will
 #' serve it.
 #'
-#' @return An object of class \code{"grpc_server"}.
+#' @return An object of class \code{"grpc_server"}: a list holding the
+#'   native server handle (\code{ptr}) and the bind \code{address}. Pass
+#'   it to \code{\link{grpc_poll}}, \code{\link{grpc_server_port}}, and
+#'   \code{\link{grpc_close}}.
 #' @examples
-#' \dontrun{
 #' srv <- grpc_server("127.0.0.1:0")
-#' events <- grpc_poll(srv, timeout_ms = 1000L)
-#' for (ev in events) {
-#'   if (ev$type == "request") grpc_reply(ev, handle(ev$request))
+#' grpc_server_port(srv)
+#'
+#' ## a client in the same process makes one call
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#' call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hello"), deadline_ms = 5000)
+#'
+#' ## the server sees it as a request event; there are no handlers to
+#' ## register, the method name arrives with the event
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)           # waits for the request
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req$method
+#' grpc_reply(req, req$request)                        # echo it back
+#'
+#' ## the client collects the completion
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000L)
+#'   if (length(evs)) break                            # empty means "not yet"
 #' }
+#' evs[[1]]$status_name
+#' rawToChar(evs[[1]]$response)
+#'
+#' grpc_close(cl)
 #' grpc_close(srv)
-#' }
 #' @export
 grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
                         accept_window = 8L, max_active = 256L,
@@ -95,9 +114,13 @@ grpc_server <- function(address = "127.0.0.1:0", credentials = NULL,
 #' bind address. Meaningless for unix-domain sockets.
 #'
 #' @param server A \code{"grpc_server"} object.
-#' @return Integer port number.
+#' @return Integer scalar: the TCP port the server listens on.
 #' @examples
-#' \dontrun{grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))}
+#' srv <- grpc_server("127.0.0.1:0")
+#' grpc_server_port(srv)
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_server_port <- function(server) {
     stopifnot(inherits(server, "grpc_server"))
@@ -122,11 +145,41 @@ grpc_server_port <- function(server) {
 #' @param message Optional error detail string for non-\code{OK} status.
 #' @param metadata Optional named character vector sent as trailing
 #'   metadata.
+#' @return Invisibly, a logical scalar: \code{TRUE} if the reply was
+#'   accepted for sending, \code{FALSE} if the call is no longer
+#'   answerable.
 #' @examples
-#' \dontrun{
-#' grpc_reply(ev, serialize(resp, NULL))
-#' grpc_reply(ev, status = "NOT_FOUND", message = "no such sandbox")
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## a payload reply (status OK), with trailing metadata
+#' call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' (grpc_reply(req, req$request, metadata = c("x-served-by" = "example")))
+#' (grpc_reply(req, req$request))          # FALSE: already answered
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000L)
+#'   if (length(evs)) break
 #' }
+#' evs[[1]]$status_name
+#' evs[[1]]$trailing_metadata
+#'
+#' ## an error status needs no payload
+#' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' grpc_reply(req, status = "NOT_FOUND", message = "no such thing")
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000L)
+#'   if (length(evs)) break
+#' }
+#' evs[[1]]$status_name
+#' evs[[1]]$message
+#' is.null(evs[[1]]$response)
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_reply <- function(request, response = NULL, status = 0L, message = "",
                        metadata = NULL) {
@@ -163,8 +216,32 @@ grpc_reply <- function(request, response = NULL, status = 0L, message = "",
 #'
 #' @param request A \code{"grpc_request"} event from
 #'   \code{\link{grpc_poll}}.
+#' @return Invisibly, a logical scalar: \code{TRUE} if a read was posted,
+#'   \code{FALSE} if one is already in flight or the call is over.
 #' @examples
-#' \dontrun{grpc_read(ev)}
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#' s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
+#' for (i in 1:4) grpc_send(s, as.raw(i))
+#' grpc_writes_done(s)
+#'
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' got <- as.integer(req$request)          # the first message rides on the request
+#' (grpc_read(req))                        # TRUE: one read is now in flight
+#' (grpc_read(req))                        # FALSE: one read at a time
+#' ## each read yields one "stream_msg", or "client_done" at the end
+#' repeat {
+#'   evs <- grpc_await(req, timeout_ms = 1000L)
+#'   for (ev in evs) if (ev$type == "stream_msg") got <- c(got, as.integer(ev$request))
+#'   if (length(Filter(function(e) e$type %in% c("client_done", "cancelled"), evs))) break
+#'   grpc_read(req)                        # post the next read
+#' }
+#' got
+#' grpc_reply(req, as.raw(length(got)))
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_read <- function(request) {
     stopifnot(inherits(request, "grpc_request"))
@@ -210,13 +287,51 @@ grpc_send.grpc_request <- function(x, msg, ...) {
 #' @param drain If \code{TRUE} (default), queued messages are delivered
 #'   before the status; if \code{FALSE}, they are discarded and the
 #'   status is prioritized.
+#' @return Invisibly, a logical scalar: \code{TRUE} if the status was
+#'   accepted for sending, \code{FALSE} if the call is no longer
+#'   answerable.
 #' @examples
-#' \dontrun{
-#' for (m in msgs) grpc_send(ev, m)
-#' grpc_finish(ev)
-#' grpc_finish(ev, status = "ABORTED", message = "session replaced",
-#'             drain = FALSE)
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## server streaming: the client sends one request and half-closes
+#' s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 5000)
+#' grpc_send(s, as.raw(7))
+#' grpc_writes_done(s)
+#'
+#' ## server: three messages, then the status with trailing metadata
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' for (i in 1:3) grpc_send(req, as.raw(i))
+#' grpc_finish(req, metadata = c("x-count" = "3"))
+#'
+#' out <- list()
+#' repeat {
+#'   evs <- grpc_await(s, timeout_ms = 1000L)
+#'   for (ev in evs) if (ev$kind == "stream_msg") out <- c(out, list(ev$response))
+#'   st <- Filter(function(e) e$kind == "stream_status", evs)
+#'   if (length(st)) break
 #' }
+#' length(out)
+#' st[[1]]$status_name
+#' st[[1]]$trailing_metadata
+#'
+#' ## an error status ends a stream without any payload
+#' s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 5000)
+#' grpc_send(s, raw(1))
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' grpc_finish(req, status = "NOT_FOUND", message = "no such stream")
+#' repeat {
+#'   evs <- grpc_await(s, timeout_ms = 1000L)
+#'   st <- Filter(function(e) e$kind == "stream_status", evs)
+#'   if (length(st)) break
+#' }
+#' st[[1]]$status_name
+#' st[[1]]$message
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_finish <- function(request, status = 0L, message = "", metadata = NULL,
                         drain = TRUE) {

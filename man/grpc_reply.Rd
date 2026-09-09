@@ -27,6 +27,11 @@ grpc_reply(
 \item{metadata}{Optional named character vector sent as trailing
 metadata.}
 }
+\value{
+Invisibly, a logical scalar: \code{TRUE} if the reply was
+  accepted for sending, \code{FALSE} if the call is no longer
+  answerable.
+}
 \description{
 Completes a request received from \code{\link{grpc_poll}} on a
 server, either with a response payload (status \code{OK}) or with an
@@ -35,8 +40,35 @@ accepted, or \code{FALSE} if the call is no longer answerable (the
 peer cancelled, timed out, or the request was already answered).
 }
 \examples{
-\dontrun{
-grpc_reply(ev, serialize(resp, NULL))
-grpc_reply(ev, status = "NOT_FOUND", message = "no such sandbox")
+srv <- grpc_server("127.0.0.1:0")
+cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+
+## a payload reply (status OK), with trailing metadata
+call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
+evs <- grpc_poll(srv, timeout_ms = 5000L)
+req <- Filter(function(e) e$type == "request", evs)[[1]]
+(grpc_reply(req, req$request, metadata = c("x-served-by" = "example")))
+(grpc_reply(req, req$request))          # FALSE: already answered
+repeat {
+  evs <- grpc_await(call, timeout_ms = 1000L)
+  if (length(evs)) break
 }
+evs[[1]]$status_name
+evs[[1]]$trailing_metadata
+
+## an error status needs no payload
+call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
+evs <- grpc_poll(srv, timeout_ms = 5000L)
+req <- Filter(function(e) e$type == "request", evs)[[1]]
+grpc_reply(req, status = "NOT_FOUND", message = "no such thing")
+repeat {
+  evs <- grpc_await(call, timeout_ms = 1000L)
+  if (length(evs)) break
+}
+evs[[1]]$status_name
+evs[[1]]$message
+is.null(evs[[1]]$response)
+
+grpc_close(cl)
+grpc_close(srv)
 }

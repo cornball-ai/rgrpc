@@ -19,7 +19,8 @@ call's own deadline is the other half of that guarantee.}
 }
 \value{
 A list of events for \code{x} (possibly empty), in arrival
-  order.
+  order. Each event is a list with the same fields
+  \code{\link{grpc_poll}} delivers for that kind of object.
 }
 \description{
 Like \code{\link{grpc_poll}}, but scoped to a single call: only that
@@ -78,35 +79,38 @@ deadlines, not a count.
 
 }
 \examples{
-\dontrun{
-## unary: keep waiting until the completion arrives. The call's own
-## deadline_ms is what guarantees this loop ends.
-call <- grpc_call(client, "/demo.Echo/Say", req, deadline_ms = 5000)
+srv <- grpc_server("127.0.0.1:0")
+cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+
+## unary: keep waiting until the completion arrives; the call's own
+## deadline_ms is what guarantees this loop ends
+call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
+evs <- grpc_poll(srv, timeout_ms = 5000L)
+req <- Filter(function(e) e$type == "request", evs)[[1]]
+grpc_reply(req, req$request)
 repeat {
-  evs <- grpc_await(call, timeout_ms = 1000)
-  if (length(evs)) break                       # empty just means "not yet"
+  evs <- grpc_await(call, timeout_ms = 1000L)
+  if (length(evs)) break                # empty just means "not yet"
 }
 evs[[1]]$status_name
 
-## server stream: accumulate to the terminal status
-s <- grpc_stream(client, "/demo.Big/List", deadline_ms = 15000)
-grpc_writes_done(s)
-out <- list()
-repeat {
-  evs <- grpc_await(s, timeout_ms = 1000)
-  for (ev in evs) if (ev$kind == "stream_msg") out <- c(out, list(ev$response))
-  if (any(vapply(evs, function(e) e$kind == "stream_status", TRUE))) break
-}
-
 ## server handler: drain one client-streaming call without seeing any
 ## other call's messages
-got <- list()
+s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
+for (i in 1:3) grpc_send(s, as.raw(i))
+grpc_writes_done(s)
+evs <- grpc_poll(srv, timeout_ms = 5000L)
+req <- Filter(function(e) e$type == "request", evs)[[1]]
+got <- list(req$request)
 repeat {
   grpc_read(req)
-  evs <- grpc_await(req, timeout_ms = 1000)
+  evs <- grpc_await(req, timeout_ms = 1000L)
   for (ev in evs) if (ev$type == "stream_msg") got <- c(got, list(ev$request))
-  if (any(vapply(evs, function(e) e$type == "client_done", TRUE))) break
+  if (length(Filter(function(e) e$type \%in\% c("client_done", "cancelled"), evs))) break
 }
-grpc_finish(req)
-}
+grpc_reply(req, as.raw(length(got)))
+length(got)
+
+grpc_close(cl)
+grpc_close(srv)
 }

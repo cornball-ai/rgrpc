@@ -19,12 +19,27 @@
 #'   server certificate against instead of the dialed target. For
 #'   testing with certificates whose name does not match the address;
 #'   do not use in production.
-#' @return An object of class \code{"grpc_tls"}.
+#' @return An object of class \code{"grpc_tls"}: a list with the PEM
+#'   contents read from the files (\code{ca}, \code{cert}, \code{key};
+#'   \code{NULL} where no file was given), \code{require_client_cert},
+#'   and \code{target_name_override}. Pass it as the \code{credentials}
+#'   argument of \code{\link{grpc_client}} or \code{\link{grpc_server}}.
 #' @examples
+#' ## needs certificate files, which only exist in a real deployment (the
+#' ## package's TLS tests generate throwaway ones with the openssl
+#' ## command-line tool), so this example is not run
 #' \dontrun{
+#' ## client pinning a CA and presenting its own identity (mTLS)
 #' creds <- grpc_tls(ca_file = "ca.pem",
 #'                   cert_file = "client.pem", key_file = "client.key")
 #' cl <- grpc_client("node1:41900", credentials = creds)
+#'
+#' ## server demanding client certificates signed by that CA
+#' srv <- grpc_server("0.0.0.0:41900",
+#'                    credentials = grpc_tls(ca_file = "ca.pem",
+#'                                           cert_file = "server.pem",
+#'                                           key_file = "server.key",
+#'                                           require_client_cert = TRUE))
 #' }
 #' @export
 grpc_tls <- function(ca_file = NULL, cert_file = NULL, key_file = NULL,
@@ -62,10 +77,26 @@ grpc_tls <- function(ca_file = NULL, cert_file = NULL, key_file = NULL,
 #' e.g. \code{GRPC_TRACE=http,connectivity_state GRPC_VERBOSITY=debug}.
 #'
 #' @param client A \code{"grpc_client"} object.
-#' @return One of \code{"IDLE"}, \code{"CONNECTING"}, \code{"READY"},
-#'   \code{"TRANSIENT_FAILURE"}, \code{"SHUTDOWN"}.
+#' @return A character scalar, one of \code{"IDLE"}, \code{"CONNECTING"},
+#'   \code{"READY"}, \code{"TRANSIENT_FAILURE"}, \code{"SHUTDOWN"}: the
+#'   channel's connectivity state at the moment of the call.
 #' @examples
-#' \dontrun{grpc_state(cl)}
+#' srv <- grpc_server("127.0.0.1:0")
+#' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#' grpc_state(cl)                          # "IDLE": channels connect on first use
+#'
+#' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
+#' evs <- grpc_poll(srv, timeout_ms = 5000L)
+#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' grpc_reply(req, raw(0))
+#' repeat {
+#'   evs <- grpc_await(call, timeout_ms = 1000L)
+#'   if (length(evs)) break
+#' }
+#' grpc_state(cl)                          # "READY" once a call has gone through
+#'
+#' grpc_close(cl)
+#' grpc_close(srv)
 #' @export
 grpc_state <- function(client) {
     stopifnot(inherits(client, "grpc_client"))
