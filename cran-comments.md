@@ -1,6 +1,6 @@
 ## Resubmission
 
-Resubmission of 0.1.0, as 0.1.0.1, after CRAN review:
+Resubmission of 0.1.0, as 0.1.1, after CRAN review:
 
 - DESCRIPTION links the 'gRPC' project <https://grpc.io/> and its C++
   API reference <https://grpc.github.io/grpc/cpp/> in angle brackets.
@@ -23,7 +23,7 @@ Resubmission of 0.1.0, as 0.1.0.1, after CRAN review:
 - win-builder: R-release 4.6.1 and R-devel (2026-09-08 r90509), examples
   and tests run, 1 NOTE (new submission)
 - 0.1.0 was additionally checked on Debian sid, Fedora 44 (gRPC 1.48.4),
-  macOS (Homebrew gRPC 1.83.0), and r-universe; 0.1.0.1 changes only
+  macOS (Homebrew gRPC 1.83.0), and r-universe; 0.1.1 changes only
   documentation and DESCRIPTION.
 
 ## R CMD check results
