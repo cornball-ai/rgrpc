@@ -20,7 +20,8 @@ Resubmission of 0.1.0, as 0.1.0.1, after CRAN review:
 ## Test environments
 
 - Ubuntu 24.04 (noble), R 4.6.1, gRPC 1.51.1 (local, `--as-cran`)
-- win-builder: R-release and R-devel (uploaded 2026-09-09)
+- win-builder: R-release 4.6.1 and R-devel (2026-09-08 r90509), examples
+  and tests run, 1 NOTE (new submission)
 - 0.1.0 was additionally checked on Debian sid, Fedora 44 (gRPC 1.48.4),
   macOS (Homebrew gRPC 1.83.0), and r-universe; 0.1.0.1 changes only
   documentation and DESCRIPTION.
