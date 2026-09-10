@@ -66,6 +66,16 @@ dispatch events on \code{id} either way.
 srv <- grpc_server("127.0.0.1:0")
 cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
 
+## the next request event; the server has one queue for every call, so
+## other events are stepped over, and 5 s of silence is an error
+next_request <- function(srv) {
+  repeat {
+    evs <- grpc_poll(srv, timeout_ms = 5000L)
+    if (!length(evs)) stop("no request within 5 s")
+    for (ev in evs) if (ev$type == "request") return(ev)
+  }
+}
+
 ## client: three messages out, then half-close the request direction
 s <- grpc_stream(cl, "/demo.Echo/Chat", deadline_ms = 5000)
 for (i in 1:3) grpc_send(s, as.raw(i))
@@ -73,8 +83,7 @@ grpc_writes_done(s)
 
 ## server: the first message rides on the request event; read the rest,
 ## then echo each one back doubled and end the stream
-evs <- grpc_poll(srv, timeout_ms = 5000L)
-req <- Filter(function(e) e$type == "request", evs)[[1]]
+req <- next_request(srv)
 got <- list(req$request)
 repeat {
   grpc_read(req)

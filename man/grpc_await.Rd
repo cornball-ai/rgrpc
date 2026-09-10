@@ -82,11 +82,20 @@ deadlines, not a count.
 srv <- grpc_server("127.0.0.1:0")
 cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
 
+## the next request event; the server has one queue for every call, so
+## other events are stepped over, and 5 s of silence is an error
+next_request <- function(srv) {
+  repeat {
+    evs <- grpc_poll(srv, timeout_ms = 5000L)
+    if (!length(evs)) stop("no request within 5 s")
+    for (ev in evs) if (ev$type == "request") return(ev)
+  }
+}
+
 ## unary: keep waiting until the completion arrives; the call's own
 ## deadline_ms is what guarantees this loop ends
 call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
-evs <- grpc_poll(srv, timeout_ms = 5000L)
-req <- Filter(function(e) e$type == "request", evs)[[1]]
+req <- next_request(srv)
 grpc_reply(req, req$request)
 repeat {
   evs <- grpc_await(call, timeout_ms = 1000L)
@@ -99,8 +108,7 @@ evs[[1]]$status_name
 s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
 for (i in 1:3) grpc_send(s, as.raw(i))
 grpc_writes_done(s)
-evs <- grpc_poll(srv, timeout_ms = 5000L)
-req <- Filter(function(e) e$type == "request", evs)[[1]]
+req <- next_request(srv)
 got <- list(req$request)
 repeat {
   grpc_read(req)

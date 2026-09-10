@@ -51,14 +51,23 @@ this status).
 srv <- grpc_server("127.0.0.1:0")
 cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
 
+## the next request event; the server has one queue for every call, so
+## other events are stepped over, and 5 s of silence is an error
+next_request <- function(srv) {
+  repeat {
+    evs <- grpc_poll(srv, timeout_ms = 5000L)
+    if (!length(evs)) stop("no request within 5 s")
+    for (ev in evs) if (ev$type == "request") return(ev)
+  }
+}
+
 ## server streaming: the client sends one request and half-closes
 s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 5000)
 grpc_send(s, as.raw(7))
 grpc_writes_done(s)
 
 ## server: three messages, then the status with trailing metadata
-evs <- grpc_poll(srv, timeout_ms = 5000L)
-req <- Filter(function(e) e$type == "request", evs)[[1]]
+req <- next_request(srv)
 for (i in 1:3) grpc_send(req, as.raw(i))
 grpc_finish(req, metadata = c("x-count" = "3"))
 
@@ -76,8 +85,7 @@ st[[1]]$trailing_metadata
 ## an error status ends a stream without any payload
 s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 5000)
 grpc_send(s, raw(1))
-evs <- grpc_poll(srv, timeout_ms = 5000L)
-req <- Filter(function(e) e$type == "request", evs)[[1]]
+req <- next_request(srv)
 grpc_finish(req, status = "NOT_FOUND", message = "no such stream")
 repeat {
   evs <- grpc_await(s, timeout_ms = 1000L)

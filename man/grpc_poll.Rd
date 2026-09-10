@@ -77,9 +77,12 @@ calls <- lapply(1:3, function(i) {
 })
 
 ## server: one queue for every call; answer requests as they arrive
+## (5 s of silence is an error rather than an endless wait)
 answered <- 0L
 while (answered < 3L) {
-  for (ev in grpc_poll(srv, timeout_ms = 100L)) {
+  evs <- grpc_poll(srv, timeout_ms = 5000L)
+  if (!length(evs)) stop("no request within 5 s")
+  for (ev in evs) {
     if (ev$type == "request") {
       grpc_reply(ev, ev$request)
       answered <- answered + 1L

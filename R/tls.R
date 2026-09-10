@@ -85,9 +85,18 @@ grpc_tls <- function(ca_file = NULL, cert_file = NULL, key_file = NULL,
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 #' grpc_state(cl)                          # "IDLE": channels connect on first use
 #'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' grpc_reply(req, raw(0))
 #' repeat {
 #'   evs <- grpc_await(call, timeout_ms = 1000L)

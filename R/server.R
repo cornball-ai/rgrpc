@@ -59,9 +59,16 @@
 #' call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hello"), deadline_ms = 5000)
 #'
 #' ## the server sees it as a request event; there are no handlers to
-#' ## register, the method name arrives with the event
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)           # waits for the request
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' ## register, the method name arrives with the event. One queue serves
+#' ## every call, so step over other events; 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#' req <- next_request(srv)
 #' req$method
 #' grpc_reply(req, req$request)                        # echo it back
 #'
@@ -152,10 +159,19 @@ grpc_server_port <- function(server) {
 #' srv <- grpc_server("127.0.0.1:0")
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 #'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' ## a payload reply (status OK), with trailing metadata
 #' call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' (grpc_reply(req, req$request, metadata = c("x-served-by" = "example")))
 #' (grpc_reply(req, req$request))          # FALSE: already answered
 #' repeat {
@@ -167,8 +183,7 @@ grpc_server_port <- function(server) {
 #'
 #' ## an error status needs no payload
 #' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' grpc_reply(req, status = "NOT_FOUND", message = "no such thing")
 #' repeat {
 #'   evs <- grpc_await(call, timeout_ms = 1000L)
@@ -221,12 +236,22 @@ grpc_reply <- function(request, response = NULL, status = 0L, message = "",
 #' @examples
 #' srv <- grpc_server("127.0.0.1:0")
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
 #' for (i in 1:4) grpc_send(s, as.raw(i))
 #' grpc_writes_done(s)
 #'
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' got <- as.integer(req$request)          # the first message rides on the request
 #' (grpc_read(req))                        # TRUE: one read is now in flight
 #' (grpc_read(req))                        # FALSE: one read at a time
@@ -294,14 +319,23 @@ grpc_send.grpc_request <- function(x, msg, ...) {
 #' srv <- grpc_server("127.0.0.1:0")
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 #'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' ## server streaming: the client sends one request and half-closes
 #' s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 5000)
 #' grpc_send(s, as.raw(7))
 #' grpc_writes_done(s)
 #'
 #' ## server: three messages, then the status with trailing metadata
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' for (i in 1:3) grpc_send(req, as.raw(i))
 #' grpc_finish(req, metadata = c("x-count" = "3"))
 #'
@@ -319,8 +353,7 @@ grpc_send.grpc_request <- function(x, msg, ...) {
 #' ## an error status ends a stream without any payload
 #' s <- grpc_stream(cl, "/demo.Echo/Watch", deadline_ms = 5000)
 #' grpc_send(s, raw(1))
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' grpc_finish(req, status = "NOT_FOUND", message = "no such stream")
 #' repeat {
 #'   evs <- grpc_await(s, timeout_ms = 1000L)

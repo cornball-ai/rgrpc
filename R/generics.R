@@ -63,9 +63,12 @@
 #' })
 #'
 #' ## server: one queue for every call; answer requests as they arrive
+#' ## (5 s of silence is an error rather than an endless wait)
 #' answered <- 0L
 #' while (answered < 3L) {
-#'   for (ev in grpc_poll(srv, timeout_ms = 100L)) {
+#'   evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'   if (!length(evs)) stop("no request within 5 s")
+#'   for (ev in evs) {
 #'     if (ev$type == "request") {
 #'       grpc_reply(ev, ev$request)
 #'       answered <- answered + 1L
@@ -160,11 +163,20 @@ grpc_poll <- function(x, max_events = 64L, timeout_ms = 0L) {
 #' srv <- grpc_server("127.0.0.1:0")
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 #'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' ## unary: keep waiting until the completion arrives; the call's own
 #' ## deadline_ms is what guarantees this loop ends
 #' call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' grpc_reply(req, req$request)
 #' repeat {
 #'   evs <- grpc_await(call, timeout_ms = 1000L)
@@ -177,8 +189,7 @@ grpc_poll <- function(x, max_events = 64L, timeout_ms = 0L) {
 #' s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
 #' for (i in 1:3) grpc_send(s, as.raw(i))
 #' grpc_writes_done(s)
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' got <- list(req$request)
 #' repeat {
 #'   grpc_read(req)
@@ -234,12 +245,22 @@ grpc_fd <- function(x) {
 #' @examples
 #' srv <- grpc_server("127.0.0.1:0")
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
+#'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' grpc_pending(cl)                        # 0
 #' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
 #' grpc_pending(cl)                        # 1: started, not yet completed
 #'
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' grpc_pending(srv)                       # 1: accepted, not yet answered
 #' grpc_reply(req, raw(0))
 #' repeat {
@@ -278,6 +299,16 @@ grpc_pending <- function(x) {
 #' srv <- grpc_server("127.0.0.1:0")
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 #'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' ## client streaming: queue five messages, then half-close
 #' s <- grpc_stream(cl, "/demo.Echo/Collect", deadline_ms = 5000)
 #' for (i in 1:5) grpc_send(s, as.raw(i))
@@ -286,8 +317,7 @@ grpc_pending <- function(x) {
 #'
 #' ## server: count what arrives (the first message rides on the request
 #' ## event), then answer once, unary-style
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' n <- 1L
 #' repeat {
 #'   grpc_read(req)
@@ -342,11 +372,20 @@ grpc_send <- function(x, msg, ...) {
 #' srv <- grpc_server("127.0.0.1:0")
 #' cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))
 #'
+#' ## the next request event; the server has one queue for every call, so
+#' ## other events are stepped over, and 5 s of silence is an error
+#' next_request <- function(srv) {
+#'   repeat {
+#'     evs <- grpc_poll(srv, timeout_ms = 5000L)
+#'     if (!length(evs)) stop("no request within 5 s")
+#'     for (ev in evs) if (ev$type == "request") return(ev)
+#'   }
+#' }
+#'
 #' ## a call the server holds without answering: cancel it instead of
 #' ## waiting for its deadline
 #' call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 60000)
-#' evs <- grpc_poll(srv, timeout_ms = 5000L)
-#' req <- Filter(function(e) e$type == "request", evs)[[1]]
+#' req <- next_request(srv)
 #' grpc_cancel(call)
 #' repeat {
 #'   evs <- grpc_await(call, timeout_ms = 1000L)

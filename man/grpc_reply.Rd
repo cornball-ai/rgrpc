@@ -43,10 +43,19 @@ peer cancelled, timed out, or the request was already answered).
 srv <- grpc_server("127.0.0.1:0")
 cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
 
+## the next request event; the server has one queue for every call, so
+## other events are stepped over, and 5 s of silence is an error
+next_request <- function(srv) {
+  repeat {
+    evs <- grpc_poll(srv, timeout_ms = 5000L)
+    if (!length(evs)) stop("no request within 5 s")
+    for (ev in evs) if (ev$type == "request") return(ev)
+  }
+}
+
 ## a payload reply (status OK), with trailing metadata
 call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hi"), deadline_ms = 5000)
-evs <- grpc_poll(srv, timeout_ms = 5000L)
-req <- Filter(function(e) e$type == "request", evs)[[1]]
+req <- next_request(srv)
 (grpc_reply(req, req$request, metadata = c("x-served-by" = "example")))
 (grpc_reply(req, req$request))          # FALSE: already answered
 repeat {
@@ -58,8 +67,7 @@ evs[[1]]$trailing_metadata
 
 ## an error status needs no payload
 call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 5000)
-evs <- grpc_poll(srv, timeout_ms = 5000L)
-req <- Filter(function(e) e$type == "request", evs)[[1]]
+req <- next_request(srv)
 grpc_reply(req, status = "NOT_FOUND", message = "no such thing")
 repeat {
   evs <- grpc_await(call, timeout_ms = 1000L)
