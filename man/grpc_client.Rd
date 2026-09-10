@@ -25,7 +25,10 @@ keepalive.}
 the connection is declared dead.}
 }
 \value{
-An object of class \code{"grpc_client"}.
+An object of class \code{"grpc_client"}: a list holding the
+  native channel handle (\code{ptr}) and the \code{target}. Pass it to
+  \code{\link{grpc_call}}, \code{\link{grpc_stream}},
+  \code{\link{grpc_poll}}, and \code{\link{grpc_close}}.
 }
 \description{
 Opens a channel to \code{target} and starts the client's completion
@@ -76,11 +79,34 @@ non-goal; this is documented behaviour, not a defect to be fixed.
 
 }
 \examples{
-\dontrun{
-client <- grpc_client("localhost:50051")
-call <- grpc_call(client, "/demo.Echo/Say", serialize(msg, NULL),
-                  deadline_ms = 1000)
-events <- grpc_poll(client, timeout_ms = 1000L)
-grpc_close(client)
+srv <- grpc_server("127.0.0.1:0")
+cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+grpc_state(cl)                          # "IDLE": nothing has connected yet
+
+## the next request event; the server has one queue for every call, so
+## other events are stepped over, and 5 s of silence is an error
+next_request <- function(srv) {
+  repeat {
+    evs <- grpc_poll(srv, timeout_ms = 5000L)
+    if (!length(evs)) stop("no request within 5 s")
+    for (ev in evs) if (ev$type == "request") return(ev)
+  }
 }
+
+call <- grpc_call(cl, "/demo.Echo/Say", as.raw(1:4), deadline_ms = 5000)
+
+## answer it from the server half of the same process
+req <- next_request(srv)
+grpc_reply(req, req$request)
+
+## completions arrive through grpc_poll(), or per call through grpc_await()
+repeat {
+  evs <- grpc_await(call, timeout_ms = 1000L)
+  if (length(evs)) break
+}
+evs[[1]]$status_name
+evs[[1]]$response
+
+grpc_close(cl)
+grpc_close(srv)
 }

@@ -20,5 +20,13 @@ A \code{"grpc_method"} object: \code{name}, \code{path},
 Look up a method in a resolved service
 }
 \examples{
-\dontrun{m <- grpc_method(svc, "Version")}
+if (requireNamespace("RProtoBuf", quietly = TRUE)) {
+  RProtoBuf::readProtoFiles2("health.proto",
+      protoPath = system.file("proto", "health", package = "rgrpc"))
+  svc <- grpc_service("grpc.health.v1.HealthCheckRequest", "Health")
+  m <- grpc_method(svc, "Check")
+  print(m$path)
+  print(m$input_type)
+  print(grpc_method(svc, "Watch")$server_streaming)
+}
 }

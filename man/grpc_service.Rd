@@ -27,9 +27,12 @@ full method paths, input and output message types, and streaming
 flags.
 }
 \examples{
-\dontrun{
-RProtoBuf::readProtoFiles2("api.proto", protoPath = proto_dir)
-svc <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")
-names(svc$methods)
+if (requireNamespace("RProtoBuf", quietly = TRUE)) {
+  ## the gRPC health-checking schema ships with the package
+  RProtoBuf::readProtoFiles2("health.proto",
+      protoPath = system.file("proto", "health", package = "rgrpc"))
+  svc <- grpc_service("grpc.health.v1.HealthCheckRequest", "Health")
+  print(svc$name)
+  print(names(svc$methods))
 }
 }

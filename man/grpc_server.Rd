@@ -36,7 +36,10 @@ connection is declared dead.}
 server tolerates without counting a ping strike.}
 }
 \value{
-An object of class \code{"grpc_server"}.
+An object of class \code{"grpc_server"}: a list holding the
+  native server handle (\code{ptr}) and the bind \code{address}. Pass
+  it to \code{\link{grpc_poll}}, \code{\link{grpc_server_port}}, and
+  \code{\link{grpc_close}}.
 }
 \description{
 Binds \code{address}, registers the generic asynchronous service (any
@@ -74,12 +77,35 @@ serve it.
 
 }
 \examples{
-\dontrun{
 srv <- grpc_server("127.0.0.1:0")
-events <- grpc_poll(srv, timeout_ms = 1000L)
-for (ev in events) {
-  if (ev$type == "request") grpc_reply(ev, handle(ev$request))
+grpc_server_port(srv)
+
+## a client in the same process makes one call
+cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hello"), deadline_ms = 5000)
+
+## the server sees it as a request event; there are no handlers to
+## register, the method name arrives with the event. One queue serves
+## every call, so step over other events; 5 s of silence is an error
+next_request <- function(srv) {
+  repeat {
+    evs <- grpc_poll(srv, timeout_ms = 5000L)
+    if (!length(evs)) stop("no request within 5 s")
+    for (ev in evs) if (ev$type == "request") return(ev)
+  }
 }
+req <- next_request(srv)
+req$method
+grpc_reply(req, req$request)                        # echo it back
+
+## the client collects the completion
+repeat {
+  evs <- grpc_await(call, timeout_ms = 1000L)
+  if (length(evs)) break                            # empty means "not yet"
+}
+evs[[1]]$status_name
+rawToChar(evs[[1]]$response)
+
+grpc_close(cl)
 grpc_close(srv)
-}
 }

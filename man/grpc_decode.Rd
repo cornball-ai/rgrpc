@@ -13,12 +13,21 @@ event or the \code{response} field of a client completion.}
 \code{input_type} from a \code{"grpc_method"}.}
 }
 \value{
-An \code{RProtoBuf} \code{Message}.
+An \code{RProtoBuf} \code{Message} of type \code{type}, with
+  the fields decoded from \code{bytes}.
 }
 \description{
 Thin wrapper over \code{RProtoBuf::read()} for decoding a request or
 response payload against a type from the runtime descriptor pool.
 }
 \examples{
-\dontrun{req <- grpc_decode(ev$request, m$input_type)}
+if (requireNamespace("RProtoBuf", quietly = TRUE)) {
+  RProtoBuf::readProtoFiles2("health.proto",
+      protoPath = system.file("proto", "health", package = "rgrpc"))
+  ## bytes as they arrive in a request or response event
+  msg <- RProtoBuf::P("grpc.health.v1.HealthCheckRequest")$new(service = "demo")
+  bytes <- RProtoBuf::serialize(msg, NULL)
+  decoded <- grpc_decode(bytes, "grpc.health.v1.HealthCheckRequest")
+  print(decoded$service)
+}
 }

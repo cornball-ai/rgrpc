@@ -27,7 +27,11 @@ testing with certificates whose name does not match the address;
 do not use in production.}
 }
 \value{
-An object of class \code{"grpc_tls"}.
+An object of class \code{"grpc_tls"}: a list with the PEM
+  contents read from the files (\code{ca}, \code{cert}, \code{key};
+  \code{NULL} where no file was given), \code{require_client_cert},
+  and \code{target_name_override}. Pass it as the \code{credentials}
+  argument of \code{\link{grpc_client}} or \code{\link{grpc_server}}.
 }
 \description{
 Builds a credentials object for \code{\link{grpc_client}} or
@@ -43,9 +47,20 @@ verified identity appears on request events as \code{peer_identity}.
 
 }
 \examples{
+## needs certificate files, which only exist in a real deployment (the
+## package's TLS tests generate throwaway ones with the openssl
+## command-line tool), so this example is not run
 \dontrun{
+## client pinning a CA and presenting its own identity (mTLS)
 creds <- grpc_tls(ca_file = "ca.pem",
                   cert_file = "client.pem", key_file = "client.key")
 cl <- grpc_client("node1:41900", credentials = creds)
+
+## server demanding client certificates signed by that CA
+srv <- grpc_server("0.0.0.0:41900",
+                   credentials = grpc_tls(ca_file = "ca.pem",
+                                          cert_file = "server.pem",
+                                          key_file = "server.key",
+                                          require_client_cert = TRUE))
 }
 }

@@ -9,7 +9,8 @@ grpc_fd(x)
 \item{x}{A \code{"grpc_client"} or \code{"grpc_server"} object.}
 }
 \value{
-Integer descriptor.
+Integer scalar: the wake descriptor, valid until the object is
+  closed.
 }
 \description{
 Returns the object's wake descriptor: a pipe file descriptor on Unix,
@@ -20,8 +21,12 @@ with \code{later::later_fd()}. Do not read from this descriptor;
 returned a partial batch.
 }
 \examples{
-\dontrun{
-later::later_fd(function(ready) grpc_poll(client),
-                readfds = grpc_fd(client))
-}
+srv <- grpc_server("127.0.0.1:0")
+cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+grpc_fd(cl)
+grpc_fd(srv)
+## hand the descriptor to an event loop instead of polling, e.g.
+##   later::later_fd(function(ready) grpc_poll(cl), readfds = grpc_fd(cl))
+grpc_close(cl)
+grpc_close(srv)
 }

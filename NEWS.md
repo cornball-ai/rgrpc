@@ -1,10 +1,21 @@
+# rgrpc 0.1.1
+
+- First CRAN release, resubmitted after the review of 0.1.0. DESCRIPTION links the
+  gRPC project and its C++ API; every exported function documents its
+  return value, including the seven called for their side effects; and
+  the examples run instead of sitting in `\dontrun{}`: each one drives a
+  client and a server in the same process over the loopback interface.
+  `grpc_tls()` keeps a `\dontrun{}` example because it needs certificate
+  files.
+
 # rgrpc 0.1.0
 
 - Renamed from `grpc` to `rgrpc` before the first release: the bare
   name is a search token owned by the upstream project, and a unique
   name keeps this package's docs and issues findable. Exported
   functions keep their `grpc_*` names.
-- First CRAN release: an asynchronous gRPC client and server runtime on
+- First CRAN submission (returned for documentation fixes; see 0.1.1):
+  an asynchronous gRPC client and server runtime on
   the generic C++ API, with unary and streaming calls, TLS/mTLS,
   deadlines, keepalive, cancellation, and event-loop integration via
   `grpc_fd()`. Runs on Linux, Windows (Rtools >= 4.3), and macOS.

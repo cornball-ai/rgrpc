@@ -9,12 +9,16 @@ grpc_server_port(server)
 \item{server}{A \code{"grpc_server"} object.}
 }
 \value{
-Integer port number.
+Integer scalar: the TCP port the server listens on.
 }
 \description{
 The port actually bound, useful with an ephemeral \code{"host:0"}
 bind address. Meaningless for unix-domain sockets.
 }
 \examples{
-\dontrun{grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))}
+srv <- grpc_server("127.0.0.1:0")
+grpc_server_port(srv)
+cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+grpc_close(cl)
+grpc_close(srv)
 }

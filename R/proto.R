@@ -33,10 +33,13 @@
 #'   \code{package}, and a named list \code{methods} of
 #'   \code{"grpc_method"} objects.
 #' @examples
-#' \dontrun{
-#' RProtoBuf::readProtoFiles2("api.proto", protoPath = proto_dir)
-#' svc <- grpc_service("runtime.v1.VersionRequest", "RuntimeService")
-#' names(svc$methods)
+#' if (requireNamespace("RProtoBuf", quietly = TRUE)) {
+#'   ## the gRPC health-checking schema ships with the package
+#'   RProtoBuf::readProtoFiles2("health.proto",
+#'       protoPath = system.file("proto", "health", package = "rgrpc"))
+#'   svc <- grpc_service("grpc.health.v1.HealthCheckRequest", "Health")
+#'   print(svc$name)
+#'   print(names(svc$methods))
 #' }
 #' @export
 grpc_service <- function(anchor, service = NULL) {
@@ -97,7 +100,15 @@ grpc_service <- function(anchor, service = NULL) {
 #'   \code{server_streaming}. Pass it as the \code{method} argument of
 #'   \code{\link{grpc_call}} for typed calls.
 #' @examples
-#' \dontrun{m <- grpc_method(svc, "Version")}
+#' if (requireNamespace("RProtoBuf", quietly = TRUE)) {
+#'   RProtoBuf::readProtoFiles2("health.proto",
+#'       protoPath = system.file("proto", "health", package = "rgrpc"))
+#'   svc <- grpc_service("grpc.health.v1.HealthCheckRequest", "Health")
+#'   m <- grpc_method(svc, "Check")
+#'   print(m$path)
+#'   print(m$input_type)
+#'   print(grpc_method(svc, "Watch")$server_streaming)
+#' }
 #' @export
 grpc_method <- function(service, name) {
     stopifnot(inherits(service, "grpc_service"))
@@ -118,9 +129,18 @@ grpc_method <- function(service, name) {
 #'   event or the \code{response} field of a client completion.
 #' @param type Fully qualified message type name, e.g. an
 #'   \code{input_type} from a \code{"grpc_method"}.
-#' @return An \code{RProtoBuf} \code{Message}.
+#' @return An \code{RProtoBuf} \code{Message} of type \code{type}, with
+#'   the fields decoded from \code{bytes}.
 #' @examples
-#' \dontrun{req <- grpc_decode(ev$request, m$input_type)}
+#' if (requireNamespace("RProtoBuf", quietly = TRUE)) {
+#'   RProtoBuf::readProtoFiles2("health.proto",
+#'       protoPath = system.file("proto", "health", package = "rgrpc"))
+#'   ## bytes as they arrive in a request or response event
+#'   msg <- RProtoBuf::P("grpc.health.v1.HealthCheckRequest")$new(service = "demo")
+#'   bytes <- RProtoBuf::serialize(msg, NULL)
+#'   decoded <- grpc_decode(bytes, "grpc.health.v1.HealthCheckRequest")
+#'   print(decoded$service)
+#' }
 #' @export
 grpc_decode <- function(bytes, type) {
     .needs_rprotobuf()
