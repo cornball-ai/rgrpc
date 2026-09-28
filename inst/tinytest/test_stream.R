@@ -1,6 +1,8 @@
 ## Streaming (increment 6): client-, server-, and bidirectional streams
 ## over an in-process loopback, plus flow-control and cancellation.
 
+exit_if_not(grpc_available())
+
 if (at_home()) {
   ## Event inbox: polls accumulate; take() consumes matches and KEEPS
   ## everything else, so an event arriving early is never lost.

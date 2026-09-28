@@ -2,6 +2,8 @@
 ## the server increment, so these tests exercise the error paths that
 ## complete without one: UNAVAILABLE, DEADLINE_EXCEEDED, CANCELLED.
 
+exit_if_not(grpc_available())
+
 cl <- grpc_client("127.0.0.1:1")
 expect_inherits(cl, "grpc_client")
 expect_true(grpc_fd(cl) > 0L)

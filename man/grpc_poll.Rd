@@ -68,38 +68,40 @@ how many more are produced but cannot recall events already queued.
 
 }
 \examples{
-srv <- grpc_server("127.0.0.1:0")
-cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+if (grpc_available()) {
+  srv <- grpc_server("127.0.0.1:0")
+  cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
 
-## three calls in flight at once
-calls <- lapply(1:3, function(i) {
-  grpc_call(cl, "/demo.Echo/Say", as.raw(i), deadline_ms = 5000)
-})
+  ## three calls in flight at once
+  calls <- lapply(1:3, function(i) {
+    grpc_call(cl, "/demo.Echo/Say", as.raw(i), deadline_ms = 5000)
+  })
 
-## server: one queue for every call; answer requests as they arrive
-## (5 s of silence is an error rather than an endless wait)
-answered <- 0L
-while (answered < 3L) {
-  evs <- grpc_poll(srv, timeout_ms = 5000L)
-  if (!length(evs)) stop("no request within 5 s")
-  for (ev in evs) {
-    if (ev$type == "request") {
-      grpc_reply(ev, ev$request)
-      answered <- answered + 1L
+  ## server: one queue for every call; answer requests as they arrive
+  ## (5 s of silence is an error rather than an endless wait)
+  answered <- 0L
+  while (answered < 3L) {
+    evs <- grpc_poll(srv, timeout_ms = 5000L)
+    if (!length(evs)) stop("no request within 5 s")
+    for (ev in evs) {
+      if (ev$type == "request") {
+        grpc_reply(ev, ev$request)
+        answered <- answered + 1L
+      }
     }
   }
-}
 
-## client: completions come back in completion order, so match on id
-ids <- vapply(calls, function(x) x$id, numeric(1))
-got <- vector("list", length(calls))
-while (any(vapply(got, is.null, logical(1)))) {
-  for (ev in grpc_poll(cl, timeout_ms = 100L)) {
-    if (ev$kind == "unary") got[[match(ev$id, ids)]] <- ev$response
+  ## client: completions come back in completion order, so match on id
+  ids <- vapply(calls, function(x) x$id, numeric(1))
+  got <- vector("list", length(calls))
+  while (any(vapply(got, is.null, logical(1)))) {
+    for (ev in grpc_poll(cl, timeout_ms = 100L)) {
+      if (ev$kind == "unary") got[[match(ev$id, ids)]] <- ev$response
+    }
   }
-}
-unlist(got)
+  unlist(got)
 
-grpc_close(cl)
-grpc_close(srv)
+  grpc_close(cl)
+  grpc_close(srv)
+}
 }

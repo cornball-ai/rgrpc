@@ -16,9 +16,11 @@ The port actually bound, useful with an ephemeral \code{"host:0"}
 bind address. Meaningless for unix-domain sockets.
 }
 \examples{
-srv <- grpc_server("127.0.0.1:0")
-grpc_server_port(srv)
-cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
-grpc_close(cl)
-grpc_close(srv)
+if (grpc_available()) {
+  srv <- grpc_server("127.0.0.1:0")
+  grpc_server_port(srv)
+  cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+  grpc_close(cl)
+  grpc_close(srv)
+}
 }

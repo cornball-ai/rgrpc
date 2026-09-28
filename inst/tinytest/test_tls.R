@@ -1,6 +1,8 @@
 ## TLS and mTLS (increment 7). Certificates are generated on the fly
 ## with the openssl CLI; everything is skipped without it.
 
+exit_if_not(grpc_available())
+
 if (at_home() && nzchar(Sys.which("openssl"))) {
   certdir <- file.path(tempdir(), "grpc-tls")
   dir.create(certdir, showWarnings = FALSE)

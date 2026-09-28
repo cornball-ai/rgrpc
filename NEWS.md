@@ -1,3 +1,17 @@
+# rgrpc 0.1.1.1
+
+- The package installs where gRPC C++ cannot be linked, as a stub whose
+  functions error; the new `grpc_available()` reports which build is
+  installed, and tests and examples skip on a stub. CRAN's macOS
+  builders have no gRPC, and its libc++ clang builders have only a
+  libstdc++ gRPC, which linked into a shared object that then failed to
+  load. `configure` now links a test program with R's own C++ compiler
+  instead of trusting pkg-config alone. `RGRPC_REQUIRE_GRPC=true` turns
+  the stub fallback into an install error; CI sets it on the legs that
+  have gRPC and adds a leg without it.
+- The `.Call` routine table moved to `src/routines.h`, shared by the real
+  build and the stub.
+
 # rgrpc 0.1.1
 
 - First CRAN release, resubmitted after the review of 0.1.0. DESCRIPTION links the

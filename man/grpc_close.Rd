@@ -19,9 +19,11 @@ discarded. Closing twice is a no-op; the finalizer performs the same
 shutdown if the object is garbage collected unclosed.
 }
 \examples{
-srv <- grpc_server("127.0.0.1:0")
-cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
-grpc_close(cl)
-grpc_close(srv)
-grpc_close(srv)                         # closing twice is a no-op
+if (grpc_available()) {
+  srv <- grpc_server("127.0.0.1:0")
+  cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+  grpc_close(cl)
+  grpc_close(srv)
+  grpc_close(srv)                         # closing twice is a no-op
+}
 }

@@ -77,35 +77,37 @@ serve it.
 
 }
 \examples{
-srv <- grpc_server("127.0.0.1:0")
-grpc_server_port(srv)
+if (grpc_available()) {
+  srv <- grpc_server("127.0.0.1:0")
+  grpc_server_port(srv)
 
-## a client in the same process makes one call
-cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
-call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hello"), deadline_ms = 5000)
+  ## a client in the same process makes one call
+  cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+  call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("hello"), deadline_ms = 5000)
 
-## the server sees it as a request event; there are no handlers to
-## register, the method name arrives with the event. One queue serves
-## every call, so step over other events; 5 s of silence is an error
-next_request <- function(srv) {
-  repeat {
-    evs <- grpc_poll(srv, timeout_ms = 5000L)
-    if (!length(evs)) stop("no request within 5 s")
-    for (ev in evs) if (ev$type == "request") return(ev)
+  ## the server sees it as a request event; there are no handlers to
+  ## register, the method name arrives with the event. One queue serves
+  ## every call, so step over other events; 5 s of silence is an error
+  next_request <- function(srv) {
+    repeat {
+      evs <- grpc_poll(srv, timeout_ms = 5000L)
+      if (!length(evs)) stop("no request within 5 s")
+      for (ev in evs) if (ev$type == "request") return(ev)
+    }
   }
-}
-req <- next_request(srv)
-req$method
-grpc_reply(req, req$request)                        # echo it back
+  req <- next_request(srv)
+  req$method
+  grpc_reply(req, req$request)                        # echo it back
 
-## the client collects the completion
-repeat {
-  evs <- grpc_await(call, timeout_ms = 1000L)
-  if (length(evs)) break                            # empty means "not yet"
-}
-evs[[1]]$status_name
-rawToChar(evs[[1]]$response)
+  ## the client collects the completion
+  repeat {
+    evs <- grpc_await(call, timeout_ms = 1000L)
+    if (length(evs)) break                            # empty means "not yet"
+  }
+  evs[[1]]$status_name
+  rawToChar(evs[[1]]$response)
 
-grpc_close(cl)
-grpc_close(srv)
+  grpc_close(cl)
+  grpc_close(srv)
+}
 }

@@ -10,6 +10,8 @@
 ## The server keepalive_ms/keepalive_timeout_ms arguments are plumbed
 ## identically to the client's.
 
+exit_if_not(grpc_available())
+
 ## ---- validation: whole, finite, positive milliseconds only ----
 expect_error(grpc_client("127.0.0.1:1", keepalive_ms = 0.5))
 expect_error(grpc_client("127.0.0.1:1", keepalive_ms = 1.9))

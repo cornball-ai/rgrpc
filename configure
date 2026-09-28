@@ -1,25 +1,46 @@
 #!/bin/sh
-## configure for the grpc R package
+## configure for the rgrpc R package
 ##
-## System-linked build only: finds the distro gRPC C++ library via
-## pkg-config. There is no vendored fallback by design; see PLAN.md.
+## System-linked build: finds the distro gRPC C++ library via pkg-config
+## and proves it links with R's own C++ compiler. There is no vendored
+## fallback by design; see PLAN.md. When gRPC C++ is missing or does not
+## link (e.g. a libstdc++ gRPC under a libc++ toolchain), the package
+## installs as a stub whose functions error and grpc_available() is
+## FALSE. Set RGRPC_REQUIRE_GRPC=true to make that an install error.
 
 : "${PKG_CONFIG=pkg-config}"
+: "${R_HOME=$(R RHOME)}"
+
+stub() {
+    echo "------------------------------------------------------------"
+    echo "rgrpc: $1"
+    echo "  Installing WITHOUT gRPC: every call errors and"
+    echo "  grpc_available() returns FALSE."
+    echo "  Ubuntu/Debian: sudo apt install libgrpc++-dev libprotobuf-dev"
+    echo "  (libgrpc++-dev, not libgrpc-dev: the C-only package leaves"
+    echo "   the C++ runtime and grpc++.pc missing. libgrpc++-dev does"
+    echo "   not pull libprotobuf-dev under --no-install-recommends.)"
+    echo "  Fedora: grpc-devel protobuf-devel; macOS: brew install grpc"
+    echo "------------------------------------------------------------"
+    case "${RGRPC_REQUIRE_GRPC}" in
+        [Tt][Rr][Uu][Ee]|1)
+            echo "ERROR: RGRPC_REQUIRE_GRPC is set; not building a stub." >&2
+            exit 1 ;;
+    esac
+    sed -e "s|@GRPC_CFLAGS@||" \
+        -e "s|@GRPC_LIBS@||" \
+        -e "s|@GRPC_OBJECTS@|stub.o init.o|" \
+        src/Makevars.in > src/Makevars
+    exit 0
+}
 
 if ! command -v "${PKG_CONFIG}" >/dev/null 2>&1; then
-    echo "ERROR: pkg-config not found." >&2
-    echo "  Ubuntu/Debian: sudo apt install pkgconf" >&2
-    exit 1
+    stub "pkg-config not found."
 fi
 
 for mod in "grpc++" "protobuf"; do
     if ! "${PKG_CONFIG}" --exists "${mod}"; then
-        echo "ERROR: pkg-config cannot find '${mod}'." >&2
-        echo "  Ubuntu/Debian: sudo apt install libgrpc++-dev libprotobuf-dev" >&2
-        echo "  (libgrpc++-dev, not libgrpc-dev: the C-only package leaves" >&2
-        echo "   the C++ runtime and grpc++.pc missing. libgrpc++-dev does" >&2
-        echo "   not pull libprotobuf-dev under --no-install-recommends.)" >&2
-        exit 1
+        stub "pkg-config cannot find '${mod}'."
     fi
 done
 
@@ -27,10 +48,40 @@ GRPC_VERSION=$("${PKG_CONFIG}" --modversion grpc++)
 GRPC_CFLAGS=$("${PKG_CONFIG}" --cflags grpc++ protobuf)
 GRPC_LIBS=$("${PKG_CONFIG}" --libs grpc++ protobuf)
 
+## Link, not just compile: a shared object links with unresolved symbols
+## and only fails at load time, so build an executable with the flags R
+## will use.
+CXX=$("${R_HOME}/bin/R" CMD config CXX17)
+CXXSTD=$("${R_HOME}/bin/R" CMD config CXX17STD)
+CXXFLAGS=$("${R_HOME}/bin/R" CMD config CXX17FLAGS)
+CPPFLAGS=$("${R_HOME}/bin/R" CMD config CPPFLAGS)
+LDFLAGS=$("${R_HOME}/bin/R" CMD config LDFLAGS)
+
+CONFTEST=$(mktemp -d 2>/dev/null || echo "./rgrpc-conftest.$$")
+mkdir -p "${CONFTEST}"
+cat > "${CONFTEST}/conftest.cpp" <<'EOF'
+#include <grpcpp/grpcpp.h>
+int main() {
+    auto ch = grpc::CreateChannel("localhost:1",
+                                  grpc::InsecureChannelCredentials());
+    return ch ? 0 : 1;
+}
+EOF
+if ${CXX} ${CXXSTD} ${CPPFLAGS} ${GRPC_CFLAGS} ${CXXFLAGS} \
+    "${CONFTEST}/conftest.cpp" -o "${CONFTEST}/conftest" \
+    ${LDFLAGS} ${GRPC_LIBS} > "${CONFTEST}/conftest.log" 2>&1; then
+    rm -rf "${CONFTEST}"
+else
+    tail -n 5 "${CONFTEST}/conftest.log"
+    rm -rf "${CONFTEST}"
+    stub "gRPC C++ ${GRPC_VERSION} was found but a test program does not link with R's C++ compiler (${CXX}); it may be built for a different C++ standard library."
+fi
+
 echo "using gRPC C++ ${GRPC_VERSION} via ${PKG_CONFIG}"
 
 sed -e "s|@GRPC_CFLAGS@|${GRPC_CFLAGS}|" \
     -e "s|@GRPC_LIBS@|${GRPC_LIBS}|" \
+    -e "s|@GRPC_OBJECTS@|client.o server.o shim.o init.o|" \
     src/Makevars.in > src/Makevars
 
 exit 0

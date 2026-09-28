@@ -30,13 +30,21 @@ vendoring and the Rust/tonic alternative stay dropped. This section
 originally added "they existed to serve CRAN and Windows binaries,
 neither of which is a goal" — both became goals in August 2026, and
 neither reopened the vendoring question: Windows links the gRPC that
-Rtools (>= 4.3) already bundles, macOS the Homebrew or CRAN-recipes
-build, and the wake primitive went portable (`src/wake.h`: self-pipe
+Rtools (>= 4.3) already bundles, macOS the Homebrew build, and the
+wake primitive went portable (`src/wake.h`: self-pipe
 on Unix, loopback socket pair on Windows; eventfd is Linux-only). The
 one-protobuf-runtime argument below is the Linux story. Off Linux the
 libraries are static and per-DLL symbol spaces don't interpose, and
 the payload boundary is opaque bytes either way, so two protobuf
 runtimes never share descriptors.
+
+CRAN's own builders (September 2026 check results for 0.1.1) break
+that picture twice: the macOS recipes at mac.r-project.org carry
+protobuf but no gRPC or abseil, and the Fedora clang/ASAN flavors use
+libc++ against a system gRPC built for libstdc++. Where gRPC C++ does
+not link, the package installs as a stub (`src/stub.cpp`,
+`grpc_available()` FALSE) rather than failing; see `configure`. A
+real macOS CRAN binary needs gRPC added to the R-macos recipes.
 
 - **One protobuf runtime by construction.** Verified on noble:
   `libgrpc++1.51t64` depends on `libprotobuf32t64 (>= 3.21.12)`, and r2u's

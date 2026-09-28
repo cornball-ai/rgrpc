@@ -13,5 +13,5 @@ Returns the version string of the system gRPC C++ library this package
 was built against.
 }
 \examples{
-grpc_version()
+if (grpc_available()) grpc_version()
 }

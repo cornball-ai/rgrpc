@@ -3,6 +3,8 @@
 ## another call's messages, must not lose them, and must not treat
 ## another call's queued event as a reason to stop waiting.
 
+exit_if_not(grpc_available())
+
 if (at_home()) {
   srv <- grpc_server()
   cl <- grpc_client(sprintf("127.0.0.1:%d", grpc_server_port(srv)))

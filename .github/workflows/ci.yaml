@@ -12,20 +12,26 @@ jobs:
     # ubuntu-latest is noble, the release the docker/ ABI pairing
     # targets. macos-latest builds against Homebrew's gRPC — a much
     # newer release than any distro's — so the pair brackets the
-    # version range CRAN's builders span.
+    # version range CRAN's builders span. The stub leg installs no gRPC,
+    # as on CRAN's macOS builders, and checks the stub build passes.
     strategy:
       matrix:
         include:
-          - {os: ubuntu-latest}
-          - {os: macos-latest}
+          - {os: ubuntu-latest, grpc: system}
+          - {os: macos-latest, grpc: system}
+          - {os: ubuntu-latest, grpc: none}
 
     runs-on: ${{ matrix.os }}
+
+    env:
+      # legs with gRPC must fail rather than quietly build the stub
+      RGRPC_REQUIRE_GRPC: ${{ matrix.grpc == 'system' }}
 
     steps:
       - uses: actions/checkout@v6
 
       - name: System dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.grpc == 'system'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -56,4 +62,4 @@ jobs:
         run: |
           mkdir -p "$HOME/Rlib"
           R CMD INSTALL -l "$HOME/Rlib" .
-          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(rgrpc); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res))'
+          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(rgrpc); stopifnot(grpc_available() == (Sys.getenv("RGRPC_REQUIRE_GRPC") == "true")); res <- tinytest::run_test_dir("inst/tinytest"); print(res); stopifnot(tinytest::all_pass(res))'

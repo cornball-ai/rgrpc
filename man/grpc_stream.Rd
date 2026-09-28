@@ -63,48 +63,50 @@ dispatch events on \code{id} either way.
 
 }
 \examples{
-srv <- grpc_server("127.0.0.1:0")
-cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+if (grpc_available()) {
+  srv <- grpc_server("127.0.0.1:0")
+  cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
 
-## the next request event; the server has one queue for every call, so
-## other events are stepped over, and 5 s of silence is an error
-next_request <- function(srv) {
-  repeat {
-    evs <- grpc_poll(srv, timeout_ms = 5000L)
-    if (!length(evs)) stop("no request within 5 s")
-    for (ev in evs) if (ev$type == "request") return(ev)
+  ## the next request event; the server has one queue for every call, so
+  ## other events are stepped over, and 5 s of silence is an error
+  next_request <- function(srv) {
+    repeat {
+      evs <- grpc_poll(srv, timeout_ms = 5000L)
+      if (!length(evs)) stop("no request within 5 s")
+      for (ev in evs) if (ev$type == "request") return(ev)
+    }
   }
+
+  ## client: three messages out, then half-close the request direction
+  s <- grpc_stream(cl, "/demo.Echo/Chat", deadline_ms = 5000)
+  for (i in 1:3) grpc_send(s, as.raw(i))
+  grpc_writes_done(s)
+
+  ## server: the first message rides on the request event; read the rest,
+  ## then echo each one back doubled and end the stream
+  req <- next_request(srv)
+  got <- list(req$request)
+  repeat {
+    grpc_read(req)
+    evs <- grpc_await(req, timeout_ms = 1000L)
+    for (ev in evs) if (ev$type == "stream_msg") got <- c(got, list(ev$request))
+    if (length(Filter(function(e) e$type \%in\% c("client_done", "cancelled"), evs))) break
+  }
+  for (m in got) grpc_send(req, as.raw(as.integer(m) * 2L))
+  grpc_finish(req)
+
+  ## client: responses arrive as "stream_msg" events up to the "stream_status"
+  out <- list()
+  repeat {
+    evs <- grpc_await(s, timeout_ms = 1000L)
+    for (ev in evs) if (ev$kind == "stream_msg") out <- c(out, list(ev$response))
+    st <- Filter(function(e) e$kind == "stream_status", evs)
+    if (length(st)) break
+  }
+  unlist(out)
+  st[[1]]$status_name
+
+  grpc_close(cl)
+  grpc_close(srv)
 }
-
-## client: three messages out, then half-close the request direction
-s <- grpc_stream(cl, "/demo.Echo/Chat", deadline_ms = 5000)
-for (i in 1:3) grpc_send(s, as.raw(i))
-grpc_writes_done(s)
-
-## server: the first message rides on the request event; read the rest,
-## then echo each one back doubled and end the stream
-req <- next_request(srv)
-got <- list(req$request)
-repeat {
-  grpc_read(req)
-  evs <- grpc_await(req, timeout_ms = 1000L)
-  for (ev in evs) if (ev$type == "stream_msg") got <- c(got, list(ev$request))
-  if (length(Filter(function(e) e$type \%in\% c("client_done", "cancelled"), evs))) break
-}
-for (m in got) grpc_send(req, as.raw(as.integer(m) * 2L))
-grpc_finish(req)
-
-## client: responses arrive as "stream_msg" events up to the "stream_status"
-out <- list()
-repeat {
-  evs <- grpc_await(s, timeout_ms = 1000L)
-  for (ev in evs) if (ev$kind == "stream_msg") out <- c(out, list(ev$response))
-  st <- Filter(function(e) e$kind == "stream_status", evs)
-  if (length(st)) break
-}
-unlist(out)
-st[[1]]$status_name
-
-grpc_close(cl)
-grpc_close(srv)
 }
