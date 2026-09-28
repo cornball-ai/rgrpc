@@ -54,6 +54,9 @@ GRPC_LIBS=$("${PKG_CONFIG}" --libs grpc++ protobuf)
 CXX=$("${R_HOME}/bin/R" CMD config CXX17)
 CXXSTD=$("${R_HOME}/bin/R" CMD config CXX17STD)
 CXXFLAGS=$("${R_HOME}/bin/R" CMD config CXX17FLAGS)
+## PIC as for the package's own objects; also keeps a -pie link in
+## LDFLAGS working when CXXFLAGS lack a matching hardening spec.
+CXXPICFLAGS=$("${R_HOME}/bin/R" CMD config CXX17PICFLAGS)
 CPPFLAGS=$("${R_HOME}/bin/R" CMD config CPPFLAGS)
 LDFLAGS=$("${R_HOME}/bin/R" CMD config LDFLAGS)
 
@@ -67,7 +70,7 @@ int main() {
     return ch ? 0 : 1;
 }
 EOF
-if ${CXX} ${CXXSTD} ${CPPFLAGS} ${GRPC_CFLAGS} ${CXXFLAGS} \
+if ${CXX} ${CXXSTD} ${CPPFLAGS} ${GRPC_CFLAGS} ${CXXPICFLAGS} ${CXXFLAGS} \
     "${CONFTEST}/conftest.cpp" -o "${CONFTEST}/conftest" \
     ${LDFLAGS} ${GRPC_LIBS} > "${CONFTEST}/conftest.log" 2>&1; then
     rm -rf "${CONFTEST}"

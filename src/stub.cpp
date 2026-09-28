@@ -14,6 +14,12 @@ extern "C" SEXP grpc_r_available(void) {
     return Rf_ScalarLogical(FALSE);
 }
 
+extern "C" void grpc_r_library_init(void) {}
+
+extern "C" SEXP grpc_r_library_shutdown(void) {
+    return R_NilValue;
+}
+
 static SEXP no_grpc(void) {
     Rf_error("rgrpc was installed without gRPC C++; "
              "reinstall from source with gRPC C++ available "

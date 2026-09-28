@@ -20,6 +20,34 @@ extern "C" SEXP grpc_r_available(void) {
     return Rf_ScalarLogical(TRUE);
 }
 
+// ---- library lifetime ----
+
+// One gRPC initialization for the life of the DLL, taken in R_init.
+// Without it every client and server's GrpcLibrary reference brings
+// gRPC up and, when the last one closes, back down: executor threads
+// started and joined per object, and each start runs abseil's debug
+// deadlock bookkeeping, whose frame-pointer stack walk reads through
+// whatever R-called frame is on the stack (a valgrind report on
+// CRAN's no-frame-pointer builds).
+//
+// R does not unload package DLLs at exit, so the matching shutdown also
+// runs from an onexit finalizer (.onLoad); otherwise the executor
+// threads outlive R's exit and valgrind reports their TLS as lost.
+static bool library_up = false;
+
+extern "C" void grpc_r_library_init(void) {
+    grpc_init();
+    library_up = true;
+}
+
+extern "C" SEXP grpc_r_library_shutdown(void) {
+    if (library_up) {
+        library_up = false;
+        grpc_shutdown_blocking();
+    }
+    return R_NilValue;
+}
+
 extern "C" SEXP grpc_r_version(void) {
     return Rf_mkString(grpc::Version().c_str());
 }

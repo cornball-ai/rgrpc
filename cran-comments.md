@@ -24,24 +24,32 @@ package takes the stub path above. Reproduced and verified with clang
 
 ### valgrind additional issue
 
-The valgrind reports contain no errors in this package's code:
+Fixed. The 2 "Conditional jump or move depends on uninitialised
+value(s)" contexts came from abseil's debug deadlock bookkeeping (on in
+Fedora's abseil build), whose frame-pointer stack walk read the stack
+through this package's frames, compiled without frame pointers. The
+package brought gRPC up and down with every client and server, so every
+start repeated the walk. It now initializes gRPC once, when the DLL
+loads, and shuts it down at unload or R exit.
 
-- 2 "Conditional jump or move depends on uninitialised value(s)"
-  contexts, repeated, inside abseil's `DebugOnlyDeadlockCheck` stack
-  unwinder (`absl::GetStackTrace`), reached from `grpc_init()`. The
-  unwinder walks frame pointers through this package's
-  `grpc_r_server2_create` frame, which is why valgrind names it as the
-  origin of the stack allocation. Fedora's abseil has deadlock detection
-  enabled.
-- "possibly lost" records only (0 bytes definitely or indirectly lost).
-  All of them are in protobuf's `DescriptorPool` or `Message` cloning
-  called from RProtoBuf (`readProtoFiles`, `getMessageField`), which the
-  schema examples and tests use.
+Reproduced on Fedora 44 (gRPC 1.48.4, abseil 20260107.1, valgrind
+3.27.1) with R 4.6.1 built from source with the memtests config.site
+flags and `--with-valgrind-instrumentation=2`: 0.1.1 gives 128 and 8
+errors from those 2 contexts in examples and tests; this version gives
+0 errors and 0 bytes definitely or possibly lost in both.
+
+The remaining "possibly lost" records in the CRAN log are protobuf
+`DescriptorPool` and `Message` allocations made by RProtoBuf
+(`readProtoFiles`, `getMessageField`), which the schema examples and
+tests call; RProtoBuf keeps its descriptor pool for the life of the
+process.
 
 ## Test environments
 
 - Ubuntu 24.04, R 4.6.1, gRPC 1.51.1 (local, `--as-cran`): real build
 - Ubuntu 24.04 in Docker, clang 18 with libc++, R 4.6.1: stub build
+- Fedora 44 in Docker, R 4.6.1 built with the memtests valgrind
+  config.site, `--use-valgrind`: 0 valgrind errors
 - GitHub Actions: Ubuntu (system gRPC), macOS (Homebrew gRPC), and
   Ubuntu without gRPC (stub build)
 - win-builder: TODO

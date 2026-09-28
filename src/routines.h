@@ -1,7 +1,8 @@
 // The .Call routine table, as one list of (name, arity) pairs.
 //
 // init.cpp expands it into prototypes and the registration table;
-// stub.cpp expands it into definitions that error. Both builds register
+// stub.cpp expands RGRPC_GRPC_ROUTINES into definitions that error and
+// defines the first two itself. Both builds register
 // the same routines, so the R code is identical with or without gRPC.
 
 #ifndef GRPC_R_ROUTINES_H
@@ -9,6 +10,7 @@
 
 #define RGRPC_ROUTINES(X)              \
     X(grpc_r_available, 0)             \
+    X(grpc_r_library_shutdown, 0)      \
     RGRPC_GRPC_ROUTINES(X)
 
 // The routines that need gRPC; the stub defines each as an error.

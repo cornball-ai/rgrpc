@@ -11,6 +11,15 @@
   have gRPC and adds a leg without it.
 - The `.Call` routine table moved to `src/routines.h`, shared by the real
   build and the stub.
+- gRPC is initialized once, when the DLL loads, and shut down at unload
+  or R exit, instead of coming up and down with every client and server.
+  Each start ran abseil's debug deadlock bookkeeping, whose
+  frame-pointer stack walk read uninitialized stack through the
+  package's frames on builds without frame pointers: the valgrind
+  reports on CRAN's Fedora machine. Fork behavior is unchanged
+  (`tools/fork-probe.sh`).
+- `configure` compiles its gRPC link test with R's PIC flags, so a
+  `-pie` in LDFLAGS no longer fails it on hardened toolchains.
 
 # rgrpc 0.1.1
 

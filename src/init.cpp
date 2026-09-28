@@ -17,7 +17,18 @@ static const R_CallMethodDef call_methods[] = {
     {NULL, NULL, 0}
 };
 
+// shim.cpp holds one gRPC initialization for the life of the DLL, and
+// its shutdown (a routine, also called from an onexit finalizer);
+// stub.cpp defines both as no-ops.
+extern "C" void grpc_r_library_init(void);
+
 extern "C" void R_init_rgrpc(DllInfo *dll) {
     R_registerRoutines(dll, NULL, call_methods, NULL, NULL);
     R_useDynamicSymbols(dll, FALSE);
+    grpc_r_library_init();
+}
+
+extern "C" void R_unload_rgrpc(DllInfo *dll) {
+    (void) dll;
+    grpc_r_library_shutdown();
 }

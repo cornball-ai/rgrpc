@@ -46,6 +46,14 @@ not link, the package installs as a stub (`src/stub.cpp`,
 `grpc_available()` FALSE) rather than failing; see `configure`. A
 real macOS CRAN binary needs gRPC added to the R-macos recipes.
 
+The same check round flagged valgrind: abseil's debug deadlock
+bookkeeping (on in Fedora's abseil) walks frame pointers through
+whatever frames are on the stack, and ours have none on CRAN's builds.
+Per-object gRPC init/shutdown repeated that walk on every client and
+server; gRPC is now initialized once per DLL load (`R_init_rgrpc`) and
+shut down at unload or from an onexit finalizer. Fork-probe results
+are unchanged.
+
 - **One protobuf runtime by construction.** Verified on noble:
   `libgrpc++1.51t64` depends on `libprotobuf32t64 (>= 3.21.12)`, and r2u's
   `r-cran-rprotobuf` depends on that same `libprotobuf32t64`. RProtoBuf and
