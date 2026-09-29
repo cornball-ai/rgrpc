@@ -34,7 +34,7 @@ stub() {
     exit 0
 }
 
-if ! command -v "${PKG_CONFIG}" >/dev/null 2>&1; then
+if ! "${PKG_CONFIG}" --version >/dev/null 2>&1; then
     stub "pkg-config not found."
 fi
 
