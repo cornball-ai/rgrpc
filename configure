@@ -20,7 +20,8 @@ stub() {
     echo "  (libgrpc++-dev, not libgrpc-dev: the C-only package leaves"
     echo "   the C++ runtime and grpc++.pc missing. libgrpc++-dev does"
     echo "   not pull libprotobuf-dev under --no-install-recommends.)"
-    echo "  Fedora: grpc-devel protobuf-devel; macOS: brew install grpc"
+    echo "  Fedora: sudo dnf install grpc-cpp grpc-devel protobuf-devel"
+    echo "  macOS (Homebrew): brew install grpc protobuf pkgconf"
     echo "------------------------------------------------------------"
     case "${RGRPC_REQUIRE_GRPC}" in
         [Tt][Rr][Uu][Ee]|1)
