@@ -1,0 +1,123 @@
+name: macos-recipes
+
+# Builds candidate gRPC recipes (tools/macos-recipes) with R-macos/recipes'
+# own build.sh, as CRAN's macOS builders would, then checks rgrpc against
+# the static libraries in /opt/R/$arch. Setup follows the recipes'
+# cook.yml: /usr/local and Homebrew are moved away so nothing outside
+# the recipes can be picked up.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [macos-recipes]
+    paths:
+      - 'tools/macos-recipes/**'
+      - '.github/workflows/macos-recipes.yaml'
+
+jobs:
+  recipes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel]
+        grpc: ['1.51.1', '1.48.4']
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} gRPC ${{ matrix.grpc }}
+
+    env:
+      CC: clang
+      CXX: clang++
+      OBJC: clang
+      OBJCXX: clang++
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      # pinned for reproducibility; bump deliberately
+      RECIPES_SHA: 31e34aad7ae160981913d9f30426bf5529edd60e
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check out R-macos/recipes
+        uses: actions/checkout@v6
+        with:
+          repository: R-macos/recipes
+          ref: ${{ env.RECIPES_SHA }}
+          path: recipes
+
+      - name: Remove local stuff
+        run: |
+          sudo mkdir /usr/local/.disabled && sudo mkdir -p /opt/R/`uname -m`/bin && sudo chown -R $USER /opt/R
+          sudo mv /usr/local/* /usr/local/.disabled/ && sudo rm -rf /opt/homebrew
+          echo /opt/R/`uname -m`/bin > .PATH && cat $GITHUB_PATH >> .PATH && cat .PATH > $GITHUB_PATH && rm .PATH
+          echo "ARCH=$(uname -m)" >> $GITHUB_ENV
+
+      - name: Toolchain
+        run: |
+          pip3 install --user 'cmake<4.0.0' ninja
+          PYLIB=$(ls -d ~/Library/Python/3.*/bin | head -n1)
+          echo $PYLIB >> $GITHUB_PATH
+          PATH="$PATH:$PYLIB"
+          clang --version
+          cmake --version
+
+      - name: Add candidate recipes
+        run: |
+          cp tools/macos-recipes/c-ares tools/macos-recipes/re2 recipes/recipes/
+          cp tools/macos-recipes/grpc-${{ matrix.grpc }} recipes/recipes/grpc
+          cat recipes/recipes/grpc
+
+      - name: Build pkg-config
+        working-directory: recipes
+        run: ./build.sh -f pkgconfig xz
+
+      - name: Build grpc and its dependencies
+        working-directory: recipes
+        run: ./build.sh grpc
+
+      - name: Inspect the result
+        run: |
+          ls /opt/R/$ARCH/lib/*.a | wc -l
+          ls /opt/R/$ARCH/lib/ | grep -E 'grpc|protobuf|absl_base|re2|cares|ssl' || true
+          export PKG_CONFIG_PATH=/opt/R/$ARCH/lib/pkgconfig
+          pkg-config --modversion grpc++ protobuf
+          echo "--libs:";         pkg-config --libs grpc++
+          echo "--static --libs:"; pkg-config --static --libs grpc++
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+
+      - name: Install tinytest
+        run: Rscript -e 'install.packages("tinytest", repos = "https://cloud.r-project.org")'
+
+      - name: Check rgrpc against the recipes
+        env:
+          PKG_CONFIG_PATH: /opt/R/${{ env.ARCH }}/lib/pkgconfig
+          RGRPC_REQUIRE_GRPC: 'true'
+          _R_CHECK_FORCE_SUGGESTS_: 'false'
+        run: |
+          R CMD build .
+          R CMD check --no-manual rgrpc_*.tar.gz || { cat rgrpc.Rcheck/00install.out; exit 1; }
+          grep -E "using gRPC|stub" rgrpc.Rcheck/00install.out || true
+          otool -L rgrpc.Rcheck/rgrpc/libs/rgrpc.so
+
+      - name: At-home suite
+        env:
+          PKG_CONFIG_PATH: /opt/R/${{ env.ARCH }}/lib/pkgconfig
+        run: |
+          mkdir -p "$HOME/Rlib"
+          R CMD INSTALL -l "$HOME/Rlib" rgrpc_*.tar.gz
+          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(rgrpc); stopifnot(grpc_available()); print(grpc_version()); res <- tinytest::run_test_dir("inst/tinytest", at_home = TRUE); print(res); stopifnot(tinytest::all_pass(res))'
+
+      - name: Keep logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.os }}-${{ matrix.grpc }}
+          path: |
+            recipes/build/*.log
+            recipes/build/grpc-*-obj/CMakeFiles/*.log
+            rgrpc.Rcheck/*.out
+            rgrpc.Rcheck/*.log
+          if-no-files-found: ignore
+          retention-days: 7
