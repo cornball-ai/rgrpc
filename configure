@@ -49,6 +49,13 @@ GRPC_VERSION=$("${PKG_CONFIG}" --modversion grpc++)
 GRPC_CFLAGS=$("${PKG_CONFIG}" --cflags grpc++ protobuf)
 GRPC_LIBS=$("${PKG_CONFIG}" --libs grpc++ protobuf)
 
+## abseil's time zone code calls CoreFoundation on macOS. A shared
+## abseil (Homebrew) carries that dependency; the static one in CRAN's
+## macOS recipes does not, and its .pc files do not list it.
+if [ "$(uname -s)" = "Darwin" ]; then
+    GRPC_LIBS="${GRPC_LIBS} -framework CoreFoundation"
+fi
+
 ## Link, not just compile: a shared object links with unresolved symbols
 ## and only fails at load time, so build an executable with the flags R
 ## will use.
