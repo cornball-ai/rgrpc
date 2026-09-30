@@ -37,7 +37,11 @@ jobs:
       RECIPES_SHA: 31e34aad7ae160981913d9f30426bf5529edd60e
 
     steps:
+      # the package in pkg/, beside recipes/, so R CMD build does not
+      # sweep the recipes build tree into the tarball
       - uses: actions/checkout@v6
+        with:
+          path: pkg
 
       - name: Check out R-macos/recipes
         uses: actions/checkout@v6
@@ -64,8 +68,8 @@ jobs:
 
       - name: Add candidate recipes
         run: |
-          cp tools/macos-recipes/c-ares tools/macos-recipes/re2 recipes/recipes/
-          cp tools/macos-recipes/grpc-${{ matrix.grpc }} recipes/recipes/grpc
+          cp pkg/tools/macos-recipes/c-ares pkg/tools/macos-recipes/re2 recipes/recipes/
+          cp pkg/tools/macos-recipes/grpc-${{ matrix.grpc }} recipes/recipes/grpc
           cat recipes/recipes/grpc
 
       - name: Build pkg-config
@@ -108,10 +112,13 @@ jobs:
           RGRPC_REQUIRE_GRPC: 'true'
           _R_CHECK_FORCE_SUGGESTS_: 'false'
         run: |
-          R CMD build .
+          which -a openssl; openssl version
+          R CMD build pkg
           R CMD check --no-manual rgrpc_*.tar.gz || { cat rgrpc.Rcheck/00install.out; exit 1; }
           grep -E "using gRPC|stub" rgrpc.Rcheck/00install.out || true
           otool -L rgrpc.Rcheck/rgrpc/libs/rgrpc.so
+          # R CMD check exits 0 on WARNINGs; fail on them here
+          ! grep -E "^Status: .*(WARNING|ERROR)" rgrpc.Rcheck/00check.log
 
       - name: At-home suite
         env:
@@ -119,7 +126,7 @@ jobs:
         run: |
           mkdir -p "$HOME/Rlib"
           R CMD INSTALL -l "$HOME/Rlib" rgrpc_*.tar.gz
-          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(rgrpc); stopifnot(grpc_available()); print(grpc_version()); res <- tinytest::run_test_dir("inst/tinytest", at_home = TRUE); print(res); stopifnot(tinytest::all_pass(res))'
+          Rscript -e '.libPaths(c(file.path(Sys.getenv("HOME"), "Rlib"), .libPaths())); library(rgrpc); stopifnot(grpc_available()); print(grpc_version()); res <- tinytest::run_test_dir("pkg/inst/tinytest", at_home = TRUE); print(res); stopifnot(tinytest::all_pass(res))'
 
       - name: Keep logs
         if: always()
