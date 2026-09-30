@@ -70,6 +70,10 @@ jobs:
         run: |
           cp pkg/tools/macos-recipes/c-ares pkg/tools/macos-recipes/re2 recipes/recipes/
           cp pkg/tools/macos-recipes/grpc-${{ matrix.grpc }} recipes/recipes/grpc
+          # recipes apply recipes/<name>.patch with patch -p1
+          if [ -f pkg/tools/macos-recipes/grpc-${{ matrix.grpc }}.patch ]; then
+            cp pkg/tools/macos-recipes/grpc-${{ matrix.grpc }}.patch recipes/recipes/grpc.patch
+          fi
           cat recipes/recipes/grpc
 
       - name: Build pkg-config
