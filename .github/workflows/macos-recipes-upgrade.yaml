@@ -1,0 +1,128 @@
+name: macos-recipes-upgrade
+
+# Would upgrading the absl and protobuf recipes (for a current gRPC)
+# break the other CRAN packages that link them on CRAN's Macs? Builds
+# either the current recipes or the upgraded ones (tools/macos-recipes/
+# upgrade), then installs those packages from CRAN source against
+# /opt/R/$arch. The "current" leg is the baseline: a package failing
+# there is a harness problem, not an upgrade problem.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [macos-recipes]
+    paths:
+      - 'tools/macos-recipes/upgrade/**'
+      - '.github/workflows/macos-recipes-upgrade.yaml'
+
+jobs:
+  dependents:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel]
+        set: [current, upgrade]
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} ${{ matrix.set }}
+
+    env:
+      CC: clang
+      CXX: clang++
+      OBJC: clang
+      OBJCXX: clang++
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      RECIPES_SHA: 31e34aad7ae160981913d9f30426bf5529edd60e
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: pkg
+
+      - name: Check out R-macos/recipes
+        uses: actions/checkout@v6
+        with:
+          repository: R-macos/recipes
+          ref: ${{ env.RECIPES_SHA }}
+          path: recipes
+
+      - name: Remove local stuff
+        run: |
+          sudo mkdir /usr/local/.disabled && sudo mkdir -p /opt/R/`uname -m`/bin && sudo chown -R $USER /opt/R
+          sudo mv /usr/local/* /usr/local/.disabled/ && sudo rm -rf /opt/homebrew
+          echo /opt/R/`uname -m`/bin > .PATH && cat $GITHUB_PATH >> .PATH && cat .PATH > $GITHUB_PATH && rm .PATH
+          echo "ARCH=$(uname -m)" >> $GITHUB_ENV
+
+      - name: Toolchain
+        run: |
+          pip3 install --user 'cmake<4.0.0' ninja
+          PYLIB=$(ls -d ~/Library/Python/3.*/bin | head -n1)
+          echo $PYLIB >> $GITHUB_PATH
+
+      - name: Use the upgraded recipes
+        if: matrix.set == 'upgrade'
+        run: |
+          U=pkg/tools/macos-recipes/upgrade
+          cp $U/absl $U/protobuf recipes/recipes/
+          cp pkg/tools/macos-recipes/c-ares pkg/tools/macos-recipes/re2 recipes/recipes/
+          cp $U/grpc recipes/recipes/grpc
+          rm -f recipes/recipes/grpc.patch
+
+      - name: Build pkg-config
+        working-directory: recipes
+        run: ./build.sh -f pkgconfig xz
+
+      - name: Build the recipes
+        working-directory: recipes
+        run: |
+          if [ "${{ matrix.set }}" = upgrade ]; then
+            ./build.sh grpc
+          else
+            ./build.sh absl
+            ./build.sh protobuf
+          fi
+          export PKG_CONFIG_PATH=/opt/R/$ARCH/lib/pkgconfig
+          pkg-config --modversion protobuf absl_base
+          echo "protobuf --libs:"; pkg-config --libs protobuf
+          which protoc && protoc --version
+
+      - name: Install R
+        run: |
+          case "$ARCH" in
+            arm64)  pkg=sonoma-arm64/base/R-4.6.1-arm64.pkg ;;
+            x86_64) pkg=big-sur-x86_64/base/R-4.6.1-x86_64.pkg ;;
+          esac
+          curl -sSfL --max-time 600 -o R.pkg "https://cloud.r-project.org/bin/macosx/$pkg"
+          sudo installer -pkg R.pkg -target /
+          rm R.pkg
+          echo /Library/Frameworks/R.framework/Resources/bin >> $GITHUB_PATH
+
+      - name: Install the dependent packages from source
+        env:
+          PKG_CONFIG_PATH: /opt/R/${{ env.ARCH }}/lib/pkgconfig
+        run: Rscript pkg/tools/macos-recipes/upgrade/check-dependents.R dependents
+
+      - name: rgrpc against gRPC 1.83.1
+        if: matrix.set == 'upgrade'
+        env:
+          PKG_CONFIG_PATH: /opt/R/${{ env.ARCH }}/lib/pkgconfig
+          RGRPC_REQUIRE_GRPC: 'true'
+          _R_CHECK_FORCE_SUGGESTS_: 'false'
+        run: |
+          Rscript -e 'install.packages("tinytest", repos = "https://cloud.r-project.org")'
+          R CMD build pkg
+          R CMD check --no-manual rgrpc_*.tar.gz || { cat rgrpc.Rcheck/00install.out; exit 1; }
+          ! grep -E "^Status: .*(WARNING|ERROR)" rgrpc.Rcheck/00check.log
+
+      - name: Keep logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependents-${{ matrix.os }}-${{ matrix.set }}
+          path: |
+            dependents/*.log
+            dependents/summary.csv
+            rgrpc.Rcheck/*.out
+            rgrpc.Rcheck/*.log
+          if-no-files-found: ignore
+          retention-days: 14

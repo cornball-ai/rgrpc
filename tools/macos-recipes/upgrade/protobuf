@@ -1,0 +1,7 @@
+Package: protobuf
+Version: 35.1
+Source-URL: https://github.com/protocolbuffers/protobuf/releases/download/v${ver}/protobuf-${ver}.tar.gz
+Source-SHA256: f0b6838e7522a8da96126d487068c959bc624926368f3024ac8fd03abd0a1ac4
+Depends: absl, zlib-stub
+Build-system: cmake
+Configure: -DCMAKE_CXX_STANDARD=17 -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_ABSL_PROVIDER=package -Dprotobuf_LOCAL_DEPENDENCIES_ONLY=ON -Dprotobuf_BUILD_LIBUPB=OFF -Dprotobuf_BUILD_LIBPROTOC=ON -DCMAKE_PREFIX_PATH=/${prefix}
