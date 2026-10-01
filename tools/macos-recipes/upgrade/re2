@@ -1,0 +1,7 @@
+Package: re2
+Version: 2024-07-02
+Source-URL: https://github.com/google/re2/archive/refs/tags/${ver}.tar.gz
+Source-SHA256: eb2df807c781601c14a260a507a5bb4509be1ee626024cb45acbd57cb9d4032b
+Depends: absl
+Build-system: cmake
+Configure: -DCMAKE_CXX_STANDARD=17 -DRE2_BUILD_TESTING=OFF -DCMAKE_PREFIX_PATH=/${prefix}

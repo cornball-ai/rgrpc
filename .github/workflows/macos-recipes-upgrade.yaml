@@ -64,7 +64,9 @@ jobs:
         run: |
           U=pkg/tools/macos-recipes/upgrade
           cp $U/absl $U/protobuf recipes/recipes/
-          cp pkg/tools/macos-recipes/c-ares pkg/tools/macos-recipes/re2 recipes/recipes/
+          # re2 2024-07-02: gRPC 1.83's grpc++.pc requires re2.pc, which
+          # re2's CMake build only installs from 2023 on
+          cp pkg/tools/macos-recipes/c-ares $U/re2 recipes/recipes/
           cp $U/grpc recipes/recipes/grpc
           rm -f recipes/recipes/grpc.patch
 
