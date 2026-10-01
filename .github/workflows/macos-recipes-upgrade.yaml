@@ -78,8 +78,10 @@ jobs:
           if [ "${{ matrix.set }}" = upgrade ]; then
             ./build.sh grpc
           else
+            # openssl too: s2 needs it (the upgrade leg gets it via grpc)
             ./build.sh absl
             ./build.sh protobuf
+            ./build.sh openssl
           fi
           export PKG_CONFIG_PATH=/opt/R/$ARCH/lib/pkgconfig
           pkg-config --modversion protobuf absl_base
