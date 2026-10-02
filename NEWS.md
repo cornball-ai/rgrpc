@@ -1,4 +1,4 @@
-# rgrpc 0.1.1.1
+# rgrpc 0.1.2
 
 - The package installs where gRPC C++ cannot be linked, as a stub whose
   functions error; the new `grpc_available()` reports which build is
