@@ -39,7 +39,9 @@ jobs:
 
       - name: System dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install grpc protobuf pkgconf
+        # checkbashisms: without it a --as-cran check warns that the
+        # configure check is incomplete
+        run: brew install grpc protobuf pkgconf checkbashisms
 
       - name: Setup
         uses: eddelbuettel/github-actions/r-ci@master
@@ -53,6 +55,12 @@ jobs:
 
       - name: Test
         run: ./run.sh run_tests
+
+      - name: No check warnings
+        # run_tests fails only on ERRORs
+        run: |
+          grep -E "^Status" ./*.Rcheck/00check.log
+          ! grep -qE "^Status: .*WARNING" ./*.Rcheck/00check.log
 
       - name: At-home suite
         # R CMD check runs tinytest with at_home = FALSE, which skips
