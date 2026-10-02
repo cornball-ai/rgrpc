@@ -5,12 +5,23 @@ Fixes the check failures CRAN reported for 0.1.1 (deadline 2026-10-19).
 ### Installation ERROR on r-release/r-oldrel macOS (4 flavors)
 
 The macOS build machines have no gRPC C++ library (the recipes at
-mac.r-project.org carry protobuf but not gRPC or abseil), so
+mac.r-project.org carry abseil and protobuf but not gRPC), so
 `configure` stopped. It now installs a stub build instead: every
 native function errors with a clear message, the new exported
 `grpc_available()` returns FALSE, examples are wrapped in
 `if (grpc_available())`, and the tests skip. Linux and Windows are
 unchanged.
+
+As Prof. Ripley asked, I have proposed recipes for gRPC 1.48.4, re2
+and c-ares (https://github.com/R-macos/recipes/pull/93) and let Simon
+Urbanek know. With them, rgrpc passes R CMD check on arm64 and x86_64
+against `/opt/R/$arch`; until they are on the builders, the macOS
+binary is the stub.
+
+### SystemRequirements
+
+Now names the Fedora (grpc-cpp, grpc-devel, protobuf-devel) and
+Homebrew packages as well as the Debian ones.
 
 ### Installation ERROR on r-devel-linux-x86_64-fedora-clang and clang-ASAN
 
@@ -52,6 +63,8 @@ process.
   config.site, `--use-valgrind`: 0 valgrind errors
 - GitHub Actions: Ubuntu (system gRPC), macOS (Homebrew gRPC), and
   Ubuntu without gRPC (stub build)
+- GitHub Actions, macOS arm64 and x86_64, CRAN's R 4.6.1 against the
+  proposed recipes in `/opt/R/$arch`: Status OK
 - win-builder: TODO
 
 ## R CMD check results
