@@ -65,7 +65,8 @@ process.
   Ubuntu without gRPC (stub build)
 - GitHub Actions, macOS arm64 and x86_64, CRAN's R 4.6.1 against the
   proposed recipes in `/opt/R/$arch`: Status OK
-- win-builder: TODO
+- win-builder, R-devel (2026-09-30 r90605) and R 4.6.1, linking
+  Rtools' gRPC: Status OK on both
 
 ## R CMD check results
 
