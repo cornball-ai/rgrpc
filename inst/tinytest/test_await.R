@@ -4,6 +4,8 @@
 ## while another call's events sit queued -- that is where a filtered
 ## wait can degenerate into a spin on a permanently readable descriptor.
 
+exit_if_not(grpc_available())
+
 if (at_home()) {
   nmsg <- 12L
   size <- 256L

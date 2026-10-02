@@ -3,6 +3,8 @@
 ## create/destroy churn leaves nothing behind. This file is the main
 ## workload for the sanitizer passes (ASan/TSan/valgrind).
 
+exit_if_not(grpc_available())
+
 ## ---- operations on a closed client error, close stays idempotent ----
 cl <- grpc_client("127.0.0.1:1")
 grpc_close(cl)

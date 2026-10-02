@@ -6,7 +6,7 @@
 ## is skipped silently when the environment doesn't provide that.
 
 cri_socket <- Sys.getenv("GRPC_R_CRI_SOCKET", "/run/containerd/containerd.sock")
-cri_ready <- at_home() &&
+cri_ready <- at_home() && grpc_available() &&
   requireNamespace("RProtoBuf", quietly = TRUE) &&
   file.exists(cri_socket) &&
   file.access(cri_socket, mode = 6L) == 0L

@@ -5,6 +5,8 @@
 ## never disagree -- a caller that dispatches on `id` is safe, one that
 ## accumulates every "stream_msg" it sees is not (issue #12 follow-up).
 
+exit_if_not(grpc_available())
+
 if (at_home()) {
   size <- 4096L
   nmsg <- 12L

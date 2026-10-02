@@ -52,41 +52,43 @@ them with \code{\link{grpc_stream}}.
 
 }
 \examples{
-srv <- grpc_server("127.0.0.1:0")
-cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
+if (grpc_available()) {
+  srv <- grpc_server("127.0.0.1:0")
+  cl <- grpc_client(sprintf("127.0.0.1:\%d", grpc_server_port(srv)))
 
-## the next request event; the server has one queue for every call, so
-## other events are stepped over, and 5 s of silence is an error
-next_request <- function(srv) {
-  repeat {
-    evs <- grpc_poll(srv, timeout_ms = 5000L)
-    if (!length(evs)) stop("no request within 5 s")
-    for (ev in evs) if (ev$type == "request") return(ev)
+  ## the next request event; the server has one queue for every call, so
+  ## other events are stepped over, and 5 s of silence is an error
+  next_request <- function(srv) {
+    repeat {
+      evs <- grpc_poll(srv, timeout_ms = 5000L)
+      if (!length(evs)) stop("no request within 5 s")
+      for (ev in evs) if (ev$type == "request") return(ev)
+    }
   }
+
+  call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("ping"), deadline_ms = 5000)
+  class(call)
+
+  ## echo it back from the server half of the same process
+  req <- next_request(srv)
+  grpc_reply(req, req$request)
+
+  repeat {
+    evs <- grpc_await(call, timeout_ms = 1000L)
+    if (length(evs)) break
+  }
+  evs[[1]]$status_name
+  rawToChar(evs[[1]]$response)
+
+  ## a call nobody answers ends at its deadline
+  call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 200)
+  repeat {
+    evs <- grpc_await(call, timeout_ms = 1000L)
+    if (length(evs)) break
+  }
+  evs[[1]]$status_name
+
+  grpc_close(cl)
+  grpc_close(srv)
 }
-
-call <- grpc_call(cl, "/demo.Echo/Say", charToRaw("ping"), deadline_ms = 5000)
-class(call)
-
-## echo it back from the server half of the same process
-req <- next_request(srv)
-grpc_reply(req, req$request)
-
-repeat {
-  evs <- grpc_await(call, timeout_ms = 1000L)
-  if (length(evs)) break
-}
-evs[[1]]$status_name
-rawToChar(evs[[1]]$response)
-
-## a call nobody answers ends at its deadline
-call <- grpc_call(cl, "/demo.Echo/Say", raw(0), deadline_ms = 200)
-repeat {
-  evs <- grpc_await(call, timeout_ms = 1000L)
-  if (length(evs)) break
-}
-evs[[1]]$status_name
-
-grpc_close(cl)
-grpc_close(srv)
 }

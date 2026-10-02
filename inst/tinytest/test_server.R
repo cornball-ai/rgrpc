@@ -1,6 +1,8 @@
 ## Generic server (increment 3): construction, then in-process
 ## client/server round trips over TCP and unix-domain sockets.
 
+exit_if_not(grpc_available())
+
 srv <- grpc_server()
 expect_inherits(srv, "grpc_server")
 expect_true(grpc_server_port(srv) > 0L)

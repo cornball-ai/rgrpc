@@ -5,6 +5,8 @@
 ## assignments queued for an evicted node must not be delivered, and
 ## must not delay the ABORTED fence.
 
+exit_if_not(grpc_available())
+
 if (at_home()) {
   await_req <- function(srv, budget_ms = 5000L) {
     t0 <- Sys.time()

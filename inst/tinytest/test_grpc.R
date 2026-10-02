@@ -1,6 +1,14 @@
 ## Spike lifetime tests: create/destroy cycles must not crash, leak, or
 ## leave the process wedged. No RPC traffic; channel creation is lazy and
-## attempts no connection.
+## attempts no connection. On a stub build (no gRPC) every native call
+## errors instead.
+
+expect_true(is.logical(grpc_available()))
+if (!grpc_available()) {
+  expect_error(grpc_version(), "without gRPC")
+  expect_error(grpc_server(), "without gRPC")
+  exit_file("installed without gRPC C++")
+}
 
 expect_true(is.character(grpc_version()))
 expect_true(nchar(grpc_version()) > 0L)

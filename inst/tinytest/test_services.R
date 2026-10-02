@@ -1,6 +1,8 @@
 ## Health checking and reflection (increment 7): both are ordinary proto
 ## services, served through the generic path with no special machinery.
 
+exit_if_not(grpc_available())
+
 if (at_home() && requireNamespace("RProtoBuf", quietly = TRUE)) {
   RProtoBuf::readProtoFiles2("health.proto",
                              protoPath = normalizePath(file.path("..", "proto",

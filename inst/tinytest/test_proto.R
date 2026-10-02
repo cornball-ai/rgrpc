@@ -33,7 +33,7 @@ if (requireNamespace("RProtoBuf", quietly = TRUE)) {
   bytes <- RProtoBuf::serialize(ping, NULL)
   expect_equal(grpc_decode(bytes, "demo.Ping")$msg, "hola")
 
-  if (at_home()) {
+  if (at_home() && grpc_available()) {
     await <- function(x, n = 1L, budget_ms = 5000L) {
       evs <- list()
       t0 <- Sys.time()

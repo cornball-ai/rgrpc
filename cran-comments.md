@@ -1,48 +1,67 @@
 ## Resubmission
 
-Resubmission of 0.1.0, as 0.1.1, after CRAN review:
+Fixes the check failures CRAN reported for 0.1.1 (deadline 2026-10-19).
 
-- DESCRIPTION links the 'gRPC' project <https://grpc.io/> and its C++
-  API reference <https://grpc.github.io/grpc/cpp/> in angle brackets.
-- Every exported function has a \value section giving the class and
-  meaning of its result. The seven called for their side effects
-  (grpc_cancel, grpc_close, grpc_finish, grpc_read, grpc_reply,
-  grpc_send, grpc_writes_done) document the invisible logical or NULL
-  they return.
-- The \dontrun{} examples are unwrapped and run under R CMD check: each
-  drives a client and a server in the same process over the loopback
-  interface and finishes in under 0.3 s. The schema examples
-  (grpc_service, grpc_method, grpc_decode) are guarded by
-  requireNamespace("RProtoBuf"). One \dontrun{} remains, in grpc_tls():
-  it needs certificate files, which an example cannot produce portably;
-  that code path is exercised by the package's TLS tests.
+### Installation ERROR on r-release/r-oldrel macOS (4 flavors)
+
+The macOS build machines have no gRPC C++ library (the recipes at
+mac.r-project.org carry protobuf but not gRPC or abseil), so
+`configure` stopped. It now installs a stub build instead: every
+native function errors with a clear message, the new exported
+`grpc_available()` returns FALSE, examples are wrapped in
+`if (grpc_available())`, and the tests skip. Linux and Windows are
+unchanged.
+
+### Installation ERROR on r-devel-linux-x86_64-fedora-clang and clang-ASAN
+
+These flavors compile with libc++, while the only gRPC available is
+Fedora's, built for libstdc++. The shared object linked, then failed to
+load (`undefined symbol: grpc::CreateChannel(std::__1::basic_string...)`).
+`configure` now links a test executable with R's own C++ compiler and
+flags. That link fails the same way on a libc++ toolchain, so the
+package takes the stub path above. Reproduced and verified with clang
+18 and `-stdlib=libc++` against Ubuntu's libstdc++ gRPC 1.51.1.
+
+### valgrind additional issue
+
+Fixed. The 2 "Conditional jump or move depends on uninitialised
+value(s)" contexts came from abseil's debug deadlock bookkeeping (on in
+Fedora's abseil build), whose frame-pointer stack walk read the stack
+through this package's frames, compiled without frame pointers. The
+package brought gRPC up and down with every client and server, so every
+start repeated the walk. It now initializes gRPC once, when the DLL
+loads, and shuts it down at unload or R exit.
+
+Reproduced on Fedora 44 (gRPC 1.48.4, abseil 20260107.1, valgrind
+3.27.1) with R 4.6.1 built from source with the memtests config.site
+flags and `--with-valgrind-instrumentation=2`: 0.1.1 gives 128 and 8
+errors from those 2 contexts in examples and tests; this version gives
+0 errors and 0 bytes definitely or possibly lost in both.
+
+The remaining "possibly lost" records in the CRAN log are protobuf
+`DescriptorPool` and `Message` allocations made by RProtoBuf
+(`readProtoFiles`, `getMessageField`), which the schema examples and
+tests call; RProtoBuf keeps its descriptor pool for the life of the
+process.
 
 ## Test environments
 
-- Ubuntu 24.04 (noble), R 4.6.1, gRPC 1.51.1 (local, `--as-cran`)
-- win-builder: R-release 4.6.1 and R-devel (2026-09-08 r90509), examples
-  and tests run, 1 NOTE (new submission)
-- 0.1.0 was additionally checked on Debian sid, Fedora 44 (gRPC 1.48.4),
-  macOS (Homebrew gRPC 1.83.0), and r-universe; 0.1.1 changes only
-  documentation and DESCRIPTION.
+- Ubuntu 24.04, R 4.6.1, gRPC 1.51.1 (local, `--as-cran`): real build
+- Ubuntu 24.04 in Docker, clang 18 with libc++, R 4.6.1: stub build
+- Fedora 44 in Docker, R 4.6.1 built with the memtests valgrind
+  config.site, `--use-valgrind`: 0 valgrind errors
+- GitHub Actions: Ubuntu (system gRPC), macOS (Homebrew gRPC), and
+  Ubuntu without gRPC (stub build)
+- win-builder: TODO
 
 ## R CMD check results
 
-0 errors | 0 warnings | 1 note
+Real build (Ubuntu, `--as-cran`): 0 errors | 0 warnings | 1 note. The
+note is the Ubuntu toolchain's `-mno-omit-leaf-frame-pointer`, which
+CRAN's own machines do not emit.
 
-- New submission.
-
-The local check also notes the Ubuntu toolchain's non-portable compiler
-flags, which CRAN's own machines do not emit.
-
-## SystemRequirements
-
-The package links the system gRPC C++ library, found via
-`pkg-config grpc++ protobuf` (Debian/Ubuntu: libgrpc++-dev,
-libprotobuf-dev; Fedora: grpc-devel, protobuf-devel; Windows: bundled
-with Rtools 4.3 and later; macOS: Homebrew grpc). The environments
-above cover gRPC 1.48 through 1.83.
+Stub build (libc++, Docker): Status OK.
 
 ## Downstream dependencies
 
-None; this is a new package.
+None on CRAN.

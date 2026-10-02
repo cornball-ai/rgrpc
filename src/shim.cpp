@@ -13,7 +13,40 @@
 #include <Rinternals.h>
 #include <R_ext/Rdynload.h>
 
-// ---- version ----
+// ---- availability and version ----
+
+// stub.cpp returns FALSE; routine registration lives in init.cpp.
+extern "C" SEXP grpc_r_available(void) {
+    return Rf_ScalarLogical(TRUE);
+}
+
+// ---- library lifetime ----
+
+// One gRPC initialization for the life of the DLL, taken in R_init.
+// Without it every client and server's GrpcLibrary reference brings
+// gRPC up and, when the last one closes, back down: executor threads
+// started and joined per object, and each start runs abseil's debug
+// deadlock bookkeeping, whose frame-pointer stack walk reads through
+// whatever R-called frame is on the stack (a valgrind report on
+// CRAN's no-frame-pointer builds).
+//
+// R does not unload package DLLs at exit, so the matching shutdown also
+// runs from an onexit finalizer (.onLoad); otherwise the executor
+// threads outlive R's exit and valgrind reports their TLS as lost.
+static bool library_up = false;
+
+extern "C" void grpc_r_library_init(void) {
+    grpc_init();
+    library_up = true;
+}
+
+extern "C" SEXP grpc_r_library_shutdown(void) {
+    if (library_up) {
+        library_up = false;
+        grpc_shutdown_blocking();
+    }
+    return R_NilValue;
+}
 
 extern "C" SEXP grpc_r_version(void) {
     return Rf_mkString(grpc::Version().c_str());
@@ -128,73 +161,4 @@ extern "C" SEXP grpc_r_server_port(SEXP xp) {
 extern "C" SEXP grpc_r_server_destroy(SEXP xp) {
     server_finalizer(xp);
     return R_NilValue;
-}
-
-// ---- registration ----
-
-// client.cpp
-extern "C" SEXP grpc_r_client_create(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP,
-                                     SEXP, SEXP);
-extern "C" SEXP grpc_r_client_state(SEXP);
-extern "C" SEXP grpc_r_client_close(SEXP);
-extern "C" SEXP grpc_r_client_fd(SEXP);
-extern "C" SEXP grpc_r_client_pending(SEXP);
-extern "C" SEXP grpc_r_client_poll(SEXP, SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_call_start(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_call_cancel(SEXP, SEXP);
-extern "C" SEXP grpc_r_stream_start(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_stream_send(SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_stream_writes_done(SEXP, SEXP);
-
-// server.cpp
-extern "C" SEXP grpc_r_server2_create(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP,
-                                      SEXP, SEXP, SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_server2_close(SEXP);
-extern "C" SEXP grpc_r_server2_fd(SEXP);
-extern "C" SEXP grpc_r_server2_port(SEXP);
-extern "C" SEXP grpc_r_server2_pending(SEXP);
-extern "C" SEXP grpc_r_server2_reply(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_server2_poll(SEXP, SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_server2_read(SEXP, SEXP);
-extern "C" SEXP grpc_r_server2_cancel(SEXP, SEXP);
-extern "C" SEXP grpc_r_server2_send(SEXP, SEXP, SEXP);
-extern "C" SEXP grpc_r_server2_finish(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
-
-static const R_CallMethodDef call_methods[] = {
-    {"grpc_r_version",         (DL_FUNC) &grpc_r_version,         0},
-    {"grpc_r_channel_create",  (DL_FUNC) &grpc_r_channel_create,  1},
-    {"grpc_r_channel_destroy", (DL_FUNC) &grpc_r_channel_destroy, 1},
-    {"grpc_r_cq_create",       (DL_FUNC) &grpc_r_cq_create,       0},
-    {"grpc_r_cq_destroy",      (DL_FUNC) &grpc_r_cq_destroy,      1},
-    {"grpc_r_server_create",   (DL_FUNC) &grpc_r_server_create,   1},
-    {"grpc_r_server_port",     (DL_FUNC) &grpc_r_server_port,     1},
-    {"grpc_r_server_destroy",  (DL_FUNC) &grpc_r_server_destroy,  1},
-    {"grpc_r_client_create",   (DL_FUNC) &grpc_r_client_create,   8},
-    {"grpc_r_client_state",    (DL_FUNC) &grpc_r_client_state,    1},
-    {"grpc_r_client_close",    (DL_FUNC) &grpc_r_client_close,    1},
-    {"grpc_r_client_fd",       (DL_FUNC) &grpc_r_client_fd,       1},
-    {"grpc_r_client_pending",  (DL_FUNC) &grpc_r_client_pending,  1},
-    {"grpc_r_client_poll",     (DL_FUNC) &grpc_r_client_poll,     4},
-    {"grpc_r_call_start",      (DL_FUNC) &grpc_r_call_start,      6},
-    {"grpc_r_call_cancel",     (DL_FUNC) &grpc_r_call_cancel,     2},
-    {"grpc_r_server2_create",  (DL_FUNC) &grpc_r_server2_create,  11},
-    {"grpc_r_server2_close",   (DL_FUNC) &grpc_r_server2_close,   1},
-    {"grpc_r_server2_fd",      (DL_FUNC) &grpc_r_server2_fd,      1},
-    {"grpc_r_server2_port",    (DL_FUNC) &grpc_r_server2_port,    1},
-    {"grpc_r_server2_pending", (DL_FUNC) &grpc_r_server2_pending, 1},
-    {"grpc_r_server2_reply",   (DL_FUNC) &grpc_r_server2_reply,   6},
-    {"grpc_r_server2_poll",    (DL_FUNC) &grpc_r_server2_poll,    4},
-    {"grpc_r_stream_start",    (DL_FUNC) &grpc_r_stream_start,    7},
-    {"grpc_r_stream_send",     (DL_FUNC) &grpc_r_stream_send,     3},
-    {"grpc_r_stream_writes_done", (DL_FUNC) &grpc_r_stream_writes_done, 2},
-    {"grpc_r_server2_read",    (DL_FUNC) &grpc_r_server2_read,    2},
-    {"grpc_r_server2_cancel",  (DL_FUNC) &grpc_r_server2_cancel,  2},
-    {"grpc_r_server2_send",    (DL_FUNC) &grpc_r_server2_send,    3},
-    {"grpc_r_server2_finish",  (DL_FUNC) &grpc_r_server2_finish,  6},
-    {NULL, NULL, 0}
-};
-
-extern "C" void R_init_rgrpc(DllInfo *dll) {
-    R_registerRoutines(dll, NULL, call_methods, NULL, NULL);
-    R_useDynamicSymbols(dll, FALSE);
 }

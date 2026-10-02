@@ -6,6 +6,8 @@
 ## empty wake-up, and a caller reading "no events" as "the call never
 ## started" abandons a live stream (issue #12).
 
+exit_if_not(grpc_available())
+
 if (at_home()) {
   ## Poll, and record any empty result that cost far less than its timeout.
   spurious <- 0L

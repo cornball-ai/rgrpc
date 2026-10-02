@@ -5,10 +5,27 @@
 #'
 #' @return A character string, e.g. \code{"1.51.1"}.
 #' @examples
-#' grpc_version()
+#' if (grpc_available()) grpc_version()
 #' @export
 grpc_version <- function() {
     .Call(grpc_r_version)
+}
+
+#' Was the package built with gRPC?
+#'
+#' The package installs even where gRPC C++ cannot be linked (no gRPC
+#' library, or one built for a different C++ standard library). Such an
+#' installation is a stub: every other native call errors. Reinstall
+#' from source with the gRPC C++ development files available to get a
+#' working build.
+#'
+#' @return \code{TRUE} if the package links gRPC C++, \code{FALSE} if it
+#'   was installed as a stub.
+#' @examples
+#' grpc_available()
+#' @export
+grpc_available <- function() {
+    .Call(grpc_r_available)
 }
 
 ## Internal spike surface: object lifetime only, no RPC yet. These become

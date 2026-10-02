@@ -46,6 +46,12 @@ On Ubuntu (noble) or Debian:
 sudo apt install libgrpc++-dev libprotobuf-dev pkgconf
 ```
 
+On Fedora:
+
+```sh
+sudo dnf install grpc-cpp grpc-devel protobuf-devel pkgconf-pkg-config
+```
+
 On Windows, Rtools 4.3 or later already carries gRPC and protobuf;
 there is nothing to install beyond Rtools itself. On macOS:
 

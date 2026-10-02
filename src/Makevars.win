@@ -5,3 +5,6 @@
 CXX_STD = CXX17
 PKG_CPPFLAGS = $(shell pkg-config --cflags grpc++ protobuf)
 PKG_LIBS = $(shell pkg-config --libs grpc++ protobuf) -lws2_32
+# stub.cpp is the configure fallback for systems without gRPC; Rtools
+# always has it.
+OBJECTS = client.o server.o shim.o init.o
