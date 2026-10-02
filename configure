@@ -49,6 +49,23 @@ GRPC_VERSION=$("${PKG_CONFIG}" --modversion grpc++)
 GRPC_CFLAGS=$("${PKG_CONFIG}" --cflags grpc++ protobuf)
 GRPC_LIBS=$("${PKG_CONFIG}" --libs grpc++ protobuf)
 
+## Keep pkg-config's include directories and defines, not its warning
+## options: abseil's .pc files carry the -Wno-... flags abseil builds
+## itself with, which R CMD check reports as non-portable. Include
+## directories go in as -isystem, so warnings raised inside gRPC's and
+## abseil's own headers (deprecations between gRPC and a newer abseil)
+## are not reported against this package.
+cflags=""
+for flag in ${GRPC_CFLAGS}; do
+    case "${flag}" in
+        -W*) ;;
+        -I/usr/include) cflags="${cflags} ${flag}" ;;
+        -I*) cflags="${cflags} -isystem ${flag#-I}" ;;
+        *) cflags="${cflags} ${flag}" ;;
+    esac
+done
+GRPC_CFLAGS="${cflags}"
+
 ## abseil's time zone code calls CoreFoundation on macOS. A shared
 ## abseil (Homebrew) carries that dependency; the static one in CRAN's
 ## macOS recipes does not, and its .pc files do not list it.

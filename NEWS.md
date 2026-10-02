@@ -30,6 +30,13 @@
 - The TLS tests set certificate extensions explicitly, so they pass
   with OpenSSL 1.1, OpenSSL 3, and LibreSSL, and stop cleanly if the
   certificates cannot be generated.
+- `configure` drops warning options from pkg-config's flags and passes
+  the include directories as `-isystem`. abseil's .pc files carry its
+  own `-Wno-...` options, which R CMD check reported as non-portable
+  flags, and gRPC 1.83's headers raise deprecation warnings against
+  newer abseil releases (Homebrew), which it reported as the package's.
+- CI installs `checkbashisms` on macOS, targets the runner's macOS when
+  linking Homebrew's gRPC, and fails on check WARNINGs.
 
 # rgrpc 0.1.1
 
