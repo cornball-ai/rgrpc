@@ -18,6 +18,12 @@ Urbanek know. With them, rgrpc passes R CMD check on arm64 and x86_64
 against `/opt/R/$arch`; until they are on the builders, the macOS
 binary is the stub.
 
+`configure` now keeps only include directories and defines from
+pkg-config's flags, passing the includes as `-isystem`. abseil's .pc
+files carry the `-Wno-...` options abseil is built with, which a
+`--as-cran` check reports as non-portable; with gRPC from the recipes
+the macOS builds would otherwise inherit them.
+
 ### SystemRequirements
 
 Now names the Fedora (grpc-cpp, grpc-devel, protobuf-devel) and
