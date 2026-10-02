@@ -20,6 +20,16 @@
   (`tools/fork-probe.sh`).
 - `configure` compiles its gRPC link test with R's PIC flags, so a
   `-pie` in LDFLAGS no longer fails it on hardened toolchains.
+- `configure` checks for pkg-config with `pkg-config --version` rather
+  than `command -v`, which R-devel's check flags as a possible bashism.
+- On macOS the package links CoreFoundation, which a static abseil (as
+  in CRAN's macOS recipes) needs but does not list in its pkg-config
+  files.
+- SystemRequirements names the Fedora (`grpc-cpp`, `grpc-devel`,
+  `protobuf-devel`) and Homebrew packages as well as the Debian ones.
+- The TLS tests set certificate extensions explicitly, so they pass
+  with OpenSSL 1.1, OpenSSL 3, and LibreSSL, and stop cleanly if the
+  certificates cannot be generated.
 
 # rgrpc 0.1.1
 
