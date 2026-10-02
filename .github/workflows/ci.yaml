@@ -15,6 +15,7 @@ jobs:
     # version range CRAN's builders span. The stub leg installs no gRPC,
     # as on CRAN's macOS builders, and checks the stub build passes.
     strategy:
+      fail-fast: false
       matrix:
         include:
           - {os: ubuntu-latest, grpc: system}
@@ -47,6 +48,13 @@ jobs:
         uses: eddelbuettel/github-actions/r-ci@master
         with:
           backend: RAPT
+
+      - name: Deployment target (macOS)
+        # r-ci sets 11.0, CRAN R's minimum, but Homebrew's dylibs are
+        # built for the runner's macOS, so ld warns on every one of them.
+        # CRAN's builders link static recipes built for 11.0 instead.
+        if: runner.os == 'macOS'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
 
       - name: Dependencies
         # install_all includes Suggests: RProtoBuf and tinytest, so the
