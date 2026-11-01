@@ -74,6 +74,62 @@ if (at_home()) {
   expect_equal(got, 100L)
   expect_equal(grpc_pending(cl), 0L)
 
+  ## Calls must not grow the process. The call table used to be a binding
+  ## per id (assign/get0/rm on as.character(id)), and each of those
+  ## installs an R symbol, which R never frees; the event lookup did it
+  ## for every call, typed or not. A leaked id is three nodes (the
+  ## symbol, its name, a symbol-table cell) that gc() cannot take back,
+  ## so 2000 calls leaked about 6000 nodes; the table now holds one named
+  ## list and the count stays within noise.
+  ##
+  ## MEASURED IN A FRESH PROCESS. Call ids start at 1 for every client,
+  ## so a second measurement in the same session finds its symbols
+  ## already interned by the first and passes on a build that leaks. The
+  ## child inherits this session's library paths. The method is typed by
+  ## hand in the shape grpc_service() builds; the untyped leg uses a bare
+  ## path.
+  measure <- c(
+    'suppressMessages(library(rgrpc))',
+    'cl <- grpc_client("127.0.0.1:1")',
+    'typed <- structure(list(name = "Y", path = "/x/Y", input_type = "x.Req",',
+    '                        output_type = "x.Reply", client_streaming = FALSE,',
+    '                        server_streaming = FALSE), class = "grpc_method")',
+    'settle <- function(method, k) {',
+    '  for (i in seq_len(k)) {',
+    '    call <- grpc_call(cl, method, raw(0))',
+    '    got <- 0L',
+    '    t0 <- Sys.time()',
+    '    while (got < 1L && as.numeric(Sys.time() - t0, units = "secs") < 10) {',
+    '      got <- got + length(grpc_poll(cl, timeout_ms = 200L))',
+    '    }',
+    '  }',
+    '}',
+    'growth <- function(method) {',
+    '  settle(method, 200L)',
+    '  invisible(gc()); invisible(gc())',
+    '  base <- gc()[1L, 1L]',
+    '  settle(method, 2000L)',
+    '  invisible(gc()); invisible(gc())',
+    '  gc()[1L, 1L] - base',
+    '}',
+    'cat(growth(typed), growth("/x/Y"), length(cl$calls$types), "\n")')
+  script <- tempfile("rgrpc-symbols-", fileext = ".R")
+  writeLines(measure, script)
+  out <- system2(file.path(R.home("bin"), "Rscript"),
+                 c("--vanilla", shQuote(script)), stdout = TRUE, stderr = FALSE,
+                 env = paste0("R_LIBS=", paste(.libPaths(), collapse = ":")))
+  unlink(script)
+  got <- suppressWarnings(as.integer(strsplit(trimws(out[length(out)]),
+                                              "\\s+")[[1L]]))
+  expect_equal(length(got), 3L, info = paste(out, collapse = "\n"))
+  expect_true(isTRUE(got[1L] < 1000L),
+              info = sprintf("Ncells grew by %d over 2000 typed calls", got[1L]))
+  expect_true(isTRUE(got[2L] < 1000L),
+              info = sprintf("Ncells grew by %d over 2000 untyped calls", got[2L]))
+  expect_equal(got[3L], 0L)
+  expect_equal(length(cl$calls$types), 0L)
+  expect_equal(grpc_pending(cl), 0L)
+
   ## close with a queued call still in flight
   call <- grpc_call(cl, "/x/Y", raw(0), wait_for_ready = TRUE)
   expect_silent(grpc_close(cl))

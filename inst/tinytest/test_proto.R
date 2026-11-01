@@ -60,7 +60,7 @@ if (requireNamespace("RProtoBuf", quietly = TRUE)) {
     expect_inherits(cev$response_message, "Message")
     expect_equal(cev$response_message$msg, "hola")
     expect_equal(cev$response_message$n, 7)
-    expect_equal(length(ls(cl$calls)), 0L)
+    expect_equal(length(cl$calls$types), 0L)
 
     ## wrong request type is refused before anything is sent
     pong <- RProtoBuf::P("demo.Pong")$new()
@@ -83,7 +83,7 @@ if (requireNamespace("RProtoBuf", quietly = TRUE)) {
     cev3 <- await(cl)[[1]]
     expect_equal(cev3$status_name, "DEADLINE_EXCEEDED")
     expect_null(cev3$response_message)
-    expect_equal(length(ls(cl$calls)), 0L)
+    expect_equal(length(cl$calls$types), 0L)
 
     grpc_close(cl)
     grpc_close(srv)
