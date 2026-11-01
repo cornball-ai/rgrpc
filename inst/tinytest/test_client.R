@@ -74,6 +74,41 @@ if (at_home()) {
   expect_equal(got, 100L)
   expect_equal(grpc_pending(cl), 0L)
 
+  ## Typed calls must not grow the process: the call table used to be a
+  ## binding per id (assign/get0/rm on as.character(id)), and each of
+  ## those installs an R symbol, which R never frees. A node agent making
+  ## 64 typed calls a second reached 14 million symbols and 4.3 GB of heap
+  ## in 2.6 days, and every symbol lookup in it walked a hash chain
+  ## thousands long. A leaked id is three nodes (the symbol, its name, a
+  ## symbol-table cell) that gc() cannot take back, so 2000 calls leaked
+  ## about 6000 nodes; the table now holds one named list and the count
+  ## stays within noise. The method is typed by hand in the shape
+  ## grpc_service() builds, because it is the output type that makes a
+  ## call enter the table at all.
+  typed <- structure(list(name = "Y", path = "/x/Y", input_type = "x.Req",
+                          output_type = "x.Reply", client_streaming = FALSE,
+                          server_streaming = FALSE), class = "grpc_method")
+  settle <- function(cl, k) {
+    for (i in seq_len(k)) {
+      call <- grpc_call(cl, typed, raw(0))
+      got <- 0L
+      t0 <- Sys.time()
+      while (got < 1L && as.numeric(Sys.time() - t0, units = "secs") < 10) {
+        got <- got + length(grpc_poll(cl, timeout_ms = 200L))
+      }
+    }
+  }
+  settle(cl, 200L)
+  invisible(gc()); invisible(gc())
+  base <- gc()[1L, 1L]
+  settle(cl, 2000L)
+  invisible(gc()); invisible(gc())
+  expect_true(gc()[1L, 1L] - base < 1000L,
+              info = sprintf("Ncells grew by %d over 2000 typed calls",
+                             gc()[1L, 1L] - base))
+  expect_equal(length(cl$calls$types), 0L)
+  expect_equal(grpc_pending(cl), 0L)
+
   ## close with a queued call still in flight
   call <- grpc_call(cl, "/x/Y", raw(0), wait_for_ready = TRUE)
   expect_silent(grpc_close(cl))

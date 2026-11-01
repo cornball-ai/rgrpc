@@ -124,9 +124,43 @@ grpc_client <- function(target, credentials = NULL, keepalive_ms = NULL,
         if (tls) credentials$cert, if (tls) credentials$key,
         if (tls) credentials$target_name_override, ms(keepalive_ms),
                 ms(keepalive_timeout_ms))
-    structure(list(ptr = xp, target = target,
-                   calls = new.env(parent = emptyenv())),
+    calls <- new.env(parent = emptyenv())
+    calls$types <- list()
+    structure(list(ptr = xp, target = target, calls = calls),
               class = "grpc_client")
+}
+
+## The in-flight call types, keyed by call id: ONE binding holding a
+## named list, not a binding per id. assign(), get0() and rm() with a
+## string name install an R symbol, and R never frees a symbol, so a
+## binding per id leaked a symbol, its name and a symbol-table cell
+## (about 170 bytes) for every typed call for the life of the process,
+## and every symbol lookup in that process walked a hash chain that grew
+## with them (found on a node agent at 14 million calls: 4.3 GB of heap
+## and half a core of CPU). Subsetting a list by a string matches names
+## without interning, and the list only ever holds the outstanding calls.
+## The key is formatted, not as.character()'d: past 1e15 as.character
+## switches to scientific notation and two ids could share a key.
+.calls_key <- function(id) {
+    sprintf("%.0f", as.numeric(id))
+}
+
+.calls_set <- function(client, id, value) {
+    t <- client$calls$types
+    t[[.calls_key(id)]] <- value
+    client$calls$types <- t
+    invisible(NULL)
+}
+
+.calls_get <- function(client, id) {
+    client$calls$types[[.calls_key(id)]]
+}
+
+.calls_drop <- function(client, id) {
+    t <- client$calls$types
+    t[[.calls_key(id)]] <- NULL
+    client$calls$types <- t
+    invisible(NULL)
 }
 
 #' Start a unary call
@@ -233,8 +267,7 @@ grpc_call <- function(client, method, request, deadline_ms = NULL,
     id <- .Call(grpc_r_call_start, client$ptr, method, request, deadline_ms,
                 metadata, isTRUE(wait_for_ready))
     if (!is.null(output_type)) {
-        assign(as.character(id), list(output = output_type),
-               envir = client$calls)
+        .calls_set(client, id, list(output = output_type))
     }
     structure(list(client = client, id = id, method = method),
               class = "grpc_call")
@@ -349,7 +382,7 @@ grpc_stream <- function(client, method, deadline_ms = NULL, metadata = NULL,
                 metadata, isTRUE(wait_for_ready), as.integer(read_buffer),
                 as.integer(write_buffer))
     if (!is.null(types)) {
-        assign(as.character(id), types, envir = client$calls)
+        .calls_set(client, id, types)
     }
     structure(list(client = client, id = id, method = method),
               class = "grpc_stream")
@@ -358,8 +391,7 @@ grpc_stream <- function(client, method, deadline_ms = NULL, metadata = NULL,
 #' @export
 grpc_send.grpc_stream <- function(x, msg, ...) {
     if (inherits(msg, "Message")) {
-        types <- get0(as.character(x$id), envir = x$client$calls,
-                      inherits = FALSE)
+        types <- .calls_get(x$client, x$id)
         if (!is.null(types) && !is.null(types$input)) {
             got <- RProtoBuf::name(RProtoBuf::descriptor(msg), TRUE)
             if (!identical(got, types$input)) {
@@ -439,8 +471,7 @@ grpc_cancel.grpc_stream <- function(x) {
 ## grpc_poll() and grpc_await() so both deliver identical events.
 decorate_events <- function(client, events) {
     lapply(events, function(ev) {
-        key <- as.character(ev$id)
-        types <- get0(key, envir = client$calls, inherits = FALSE)
+        types <- .calls_get(client, ev$id)
         terminal <- ev$kind %in% c("unary", "stream_status")
         if (terminal) {
             ev$status_name <- names(grpc_status_codes)[match(ev$status,
@@ -454,7 +485,7 @@ decorate_events <- function(client, events) {
             ev$response_message <- grpc_decode(ev$response, types$output)
         }
         if (terminal && !is.null(types)) {
-            rm(list = key, envir = client$calls)
+            .calls_drop(client, ev$id)
         }
         ev
     })

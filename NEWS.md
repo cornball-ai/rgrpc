@@ -1,3 +1,19 @@
+# rgrpc 0.1.2.1
+
+- The client's table of in-flight call types no longer leaks a symbol
+  per call. It was an environment with a binding per call id
+  (`assign()`, `get0()` and `rm()` on `as.character(id)`), and every one
+  of those installs an R symbol, which R never frees: a symbol, its name
+  and a symbol-table cell, about 170 bytes, for every typed call for the
+  life of the process, plus a symbol hash chain that grew with them and
+  slowed every symbol lookup in the process. Found on a node agent that
+  made about 64 typed calls a second: 14 million ids, 4.3 GB of heap
+  and half a core of CPU after 2.6 days, with the table itself empty.
+  The table is now one named list in that environment
+  (`client$calls$types`); subsetting a list by a string matches names
+  without interning, and the list only ever holds the outstanding
+  calls. A test holds R's node count flat across 2000 typed calls.
+
 # rgrpc 0.1.2
 
 - The package installs where gRPC C++ cannot be linked, as a stub whose
