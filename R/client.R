@@ -134,10 +134,11 @@ grpc_client <- function(target, credentials = NULL, keepalive_ms = NULL,
 ## named list, not a binding per id. assign(), get0() and rm() with a
 ## string name install an R symbol, and R never frees a symbol, so a
 ## binding per id leaked a symbol, its name and a symbol-table cell
-## (about 170 bytes) for every typed call for the life of the process,
-## and every symbol lookup in that process walked a hash chain that grew
-## with them (found on a node agent at 14 million calls: 4.3 GB of heap
-## and half a core of CPU). Subsetting a list by a string matches names
+## (about 170 bytes) for every call, typed or not (the event lookup
+## interned every id), for the life of the process, and every symbol
+## lookup in that process walked a hash chain that grew with them: a
+## client making tens of calls a second was gigabytes and a good share
+## of a core within days. Subsetting a list by a string matches names
 ## without interning, and the list only ever holds the outstanding calls.
 ## The key is formatted, not as.character()'d: past 1e15 as.character
 ## switches to scientific notation and two ids could share a key.
